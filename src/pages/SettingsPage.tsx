@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ChevronUp,
   Edit3,
+  History,
 } from 'lucide-react'
 import { exportAllData, deleteAllData } from '../lib/db'
 import { MODELS, type ModelId, llmEngine } from '../lib/llm'
@@ -51,6 +52,7 @@ export default function SettingsPage() {
     setContextWindowSize,
     setSystemPromptPreset,
     setCustomSystemPrompt,
+    setConversationMemoryEnabled,
   } = useStore()
 
   // Calculate storage usage
@@ -82,7 +84,7 @@ export default function SettingsPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `digital-twin-export-${new Date().toISOString().split('T')[0]}.json`
+      a.download = `qmu-export-${new Date().toISOString().split('T')[0]}.json`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -561,6 +563,56 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* Conversation Memory Section */}
+      <div className="bg-white rounded-xl border border-gray-200">
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-teal-100 flex items-center justify-center">
+              <History className="w-5 h-5 text-teal-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Conversation Memory</h2>
+              <p className="text-sm text-gray-500">
+                Remember context from previous sessions
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-gray-900">Enable Memory</p>
+              <p className="text-sm text-gray-500">
+                The AI will remember topics, facts, and preferences from your previous conversations
+              </p>
+            </div>
+            <button
+              onClick={() => setConversationMemoryEnabled(!settings.conversationMemoryEnabled)}
+              className={clsx(
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                settings.conversationMemoryEnabled ? 'bg-teal-600' : 'bg-gray-300'
+              )}
+            >
+              <span
+                className={clsx(
+                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                  settings.conversationMemoryEnabled ? 'translate-x-6' : 'translate-x-1'
+                )}
+              />
+            </button>
+          </div>
+
+          {settings.conversationMemoryEnabled && (
+            <div className="mt-4 p-3 bg-teal-50 rounded-lg">
+              <p className="text-sm text-teal-800">
+                Memory is enabled. The AI will use context from your last 5 sessions to provide more personalized responses.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* System Prompt Section */}
       <div className="bg-white rounded-xl border border-gray-200">
         <div className="p-6 border-b border-gray-200">
@@ -659,7 +711,7 @@ export default function SettingsPage() {
         <h2 className="text-lg font-semibold text-gray-900 mb-4">About</h2>
         <div className="space-y-2 text-sm text-gray-600">
           <p>
-            <strong>Digital Twin</strong> is a privacy-preserving AI assistant
+            <strong>QMU.io</strong> is a privacy-preserving AI assistant
             that learns and adapts to you over time.
           </p>
           <p>

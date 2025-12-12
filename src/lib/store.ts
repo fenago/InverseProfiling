@@ -353,6 +353,7 @@ interface SettingsState {
   contextWindowSize: ContextWindowSize
   systemPromptPreset: SystemPromptPreset
   customSystemPrompt: string
+  conversationMemoryEnabled: boolean
 }
 
 interface AppStore {
@@ -386,6 +387,7 @@ interface AppStore {
   setContextWindowSize: (size: ContextWindowSize) => void
   setSystemPromptPreset: (preset: SystemPromptPreset) => void
   setCustomSystemPrompt: (prompt: string) => void
+  setConversationMemoryEnabled: (enabled: boolean) => void
 }
 
 export const useStore = create<AppStore>((set) => ({
@@ -461,6 +463,7 @@ export const useStore = create<AppStore>((set) => ({
     contextWindowSize: 8192, // Default to 8K - good balance of history and performance
     systemPromptPreset: 'balanced',
     customSystemPrompt: '',
+    conversationMemoryEnabled: true, // Enable by default for better continuity
   },
   setLanguage: (language) =>
     set((state) => ({ settings: { ...state.settings, language } })),
@@ -472,4 +475,6 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => ({ settings: { ...state.settings, systemPromptPreset } })),
   setCustomSystemPrompt: (customSystemPrompt) =>
     set((state) => ({ settings: { ...state.settings, customSystemPrompt } })),
+  setConversationMemoryEnabled: (conversationMemoryEnabled) =>
+    set((state) => ({ settings: { ...state.settings, conversationMemoryEnabled } })),
 }))

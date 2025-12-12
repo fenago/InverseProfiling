@@ -12,6 +12,7 @@ import {
   getAdaptationProfile,
   generateAdaptiveSystemPrompt,
 } from './adaptive-response'
+import { getCachedMemoryContext } from './session-memory'
 
 // Gemma 3n model configurations
 // These are the official LiteRT-LM format models for browser inference
@@ -62,7 +63,7 @@ export const LOADING_TIPS = [
   { title: 'Personality Insights', text: 'We analyze Big Five traits: Openness, Conscientiousness, Extraversion, Agreeableness, and Neuroticism.' },
   { title: 'Offline Capable', text: 'Once loaded, the model works completely offline.' },
   { title: 'WebGPU Powered', text: 'This uses cutting-edge WebGPU technology for fast, local AI inference.' },
-  { title: 'Your Digital Twin', text: 'Over time, I learn your communication style and preferences.' },
+  { title: 'Quantified Mind', text: 'Over time, I learn your communication style and preferences.' },
   { title: 'First Load', text: 'The first download may take a while, but subsequent loads will be much faster due to browser caching.' },
 ]
 
@@ -120,7 +121,7 @@ export type ModelId = keyof typeof MODELS
 // MediaPipe WASM files CDN
 const WASM_PATH = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai@latest/wasm'
 
-// Default system prompt for the Digital Twin assistant (used as fallback)
+// Default system prompt for the QMU.io assistant (used as fallback)
 const DEFAULT_SYSTEM_PROMPT = `You are a friendly, empathetic AI assistant designed to help users explore their thoughts and feelings. Your goal is to:
 1. Engage in natural, supportive conversation
 2. Ask thoughtful follow-up questions to understand the user better
@@ -166,11 +167,14 @@ function getUserSystemPrompt(): string {
 /**
  * Get the system prompt - combines user preset with adaptive profile if available
  * Includes response size instruction based on user settings
+ * Also includes conversation memory from previous sessions if enabled
  */
 async function getSystemPrompt(language: LanguageCode = 'en', responseSize: ResponseSize = 'medium'): Promise<string> {
   const now = Date.now()
   const store = useStore.getState()
-  const cacheKey = `${language}-${responseSize}-${store.settings.systemPromptPreset}`
+  const memoryEnabled = store.settings.conversationMemoryEnabled ?? true
+  const currentSessionId = store.chat.currentSessionId
+  const cacheKey = `${language}-${responseSize}-${store.settings.systemPromptPreset}-${memoryEnabled}`
 
   // Use cache if recent and settings haven't changed
   if (cachedAdaptivePrompt && cachedLanguage === cacheKey && (now - lastAdaptivePromptUpdate) < PROMPT_CACHE_DURATION_MS) {
@@ -195,6 +199,19 @@ async function getSystemPrompt(language: LanguageCode = 'en', responseSize: Resp
     }
   } catch (error) {
     console.warn('Failed to generate adaptive prompt, using preset only:', error)
+  }
+
+  // Add conversation memory from previous sessions if enabled
+  if (memoryEnabled) {
+    try {
+      const memoryContext = await getCachedMemoryContext(currentSessionId)
+      if (memoryContext) {
+        basePrompt = `${basePrompt}\n\n--- Memory from Previous Conversations ---\n${memoryContext}`
+        console.log('Added conversation memory context to system prompt')
+      }
+    } catch (error) {
+      console.warn('Failed to get conversation memory:', error)
+    }
   }
 
   // Add language and response size instructions

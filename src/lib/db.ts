@@ -1,5 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie'
-import { clearSqlData } from './sqldb'
+import { clearSqlData, getDomainScores, getAllMatchedWords, getAllHybridSignals, getFeatureCounts, getBehavioralMetrics } from './sqldb'
+import { clearGraph, getAllTriples } from './graphdb'
+import { clearVectorStores, getAllEmbeddings, getVectorStats } from './vectordb'
 
 // Types for our database entities
 export interface Message {
@@ -76,7 +78,7 @@ export interface Session {
 }
 
 // Database class
-class DigitalTwinDB extends Dexie {
+class QMUDB extends Dexie {
   messages!: EntityTable<Message, 'id'>
   linguisticAnalyses!: EntityTable<LinguisticAnalysis, 'id'>
   personalityTraits!: EntityTable<PersonalityTrait, 'id'>
@@ -85,7 +87,7 @@ class DigitalTwinDB extends Dexie {
   sessions!: EntityTable<Session, 'id'>
 
   constructor() {
-    super('DigitalTwinDB')
+    super('QMUDB')
 
     this.version(1).stores({
       messages: '++id, role, timestamp, sessionId',
@@ -98,7 +100,7 @@ class DigitalTwinDB extends Dexie {
   }
 }
 
-export const db = new DigitalTwinDB()
+export const db = new QMUDB()
 
 // Helper functions
 export async function logActivity(
@@ -151,13 +153,52 @@ export async function updateProfileStats() {
 }
 
 export async function exportAllData(): Promise<string> {
+  // Gather data from all 4 database systems
+  const [
+    domainScores,
+    matchedWords,
+    hybridSignals,
+    featureCounts,
+    behavioralMetrics,
+    triples,
+    embeddings,
+    vectorStats,
+  ] = await Promise.all([
+    getDomainScores(),
+    getAllMatchedWords(),
+    getAllHybridSignals(),
+    getFeatureCounts(),
+    getBehavioralMetrics(),
+    getAllTriples(),
+    getAllEmbeddings(),
+    getVectorStats(),
+  ])
+
   const data = {
+    // Dexie/IndexedDB
     messages: await db.messages.toArray(),
     linguisticAnalyses: await db.linguisticAnalyses.toArray(),
     personalityTraits: await db.personalityTraits.toArray(),
     userProfile: await db.userProfile.toArray(),
     activityLogs: await db.activityLogs.toArray(),
     sessions: await db.sessions.toArray(),
+    // SQL.js data
+    sql: {
+      domainScores,
+      matchedWords,
+      hybridSignals,
+      featureCounts,
+      behavioralMetrics,
+    },
+    // LevelGraph data
+    graph: {
+      triples,
+    },
+    // TinkerBird vector data
+    vectors: {
+      embeddings,
+      stats: vectorStats,
+    },
     exportedAt: new Date().toISOString(),
   }
 
@@ -175,6 +216,12 @@ export async function deleteAllData(): Promise<void> {
 
   // Clear SQL database (domain_scores, feature_counts, etc.)
   await clearSqlData()
+
+  // Clear LevelGraph (knowledge graph triples)
+  await clearGraph()
+
+  // Clear TinkerBird vector stores (embeddings)
+  await clearVectorStores()
 
   // Keep activity log entry for deletion
   await logActivity('delete', 'All user data deleted')

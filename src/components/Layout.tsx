@@ -21,7 +21,7 @@ export default function Layout() {
               <Brain className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="font-semibold text-gray-900">Digital Twin</h1>
+              <h1 className="font-semibold text-gray-900">QMU.io</h1>
               <p className="text-xs text-gray-500">Privacy-First AI</p>
             </div>
           </div>

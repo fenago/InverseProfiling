@@ -88,6 +88,7 @@ import {
   getBehavioralMetrics,
   getAllMatchedWords,
   getHybridSignalsForDomain,
+  getAllHybridSignals,
   type HybridSignalScore,
 } from '../lib/sqldb'
 import { getVectorStats, getAllEmbeddings } from '../lib/vectordb'
@@ -844,6 +845,9 @@ export default function ProfileDashboard() {
   } | null>(null)
   const [activeTab, setActiveTab] = useState<'overview' | 'domains' | 'trends' | 'data' | 'reference'>('overview')
 
+  // Hybrid signals for all domains (for quick signal indicators)
+  const [domainSignals, setDomainSignals] = useState<Record<string, HybridSignalScore[]>>({})
+
   // Data Inspector state
   const [showDataInspector, setShowDataInspector] = useState(true)
   const [inspectorModal, setInspectorModal] = useState<{
@@ -899,7 +903,7 @@ export default function ProfileDashboard() {
 
     // Load Phase 2 data
     try {
-      const [enhanced, trendData, evolutionData, vectorStats, graphStats, historyStats, graphViz, triplesCat] =
+      const [enhanced, trendData, evolutionData, vectorStats, graphStats, historyStats, graphViz, triplesCat, hybridSignals] =
         await Promise.all([
           getEnhancedProfileSummary(),
           analyzeAllTrends(7),
@@ -909,6 +913,7 @@ export default function ProfileDashboard() {
           getHistoricalStats(),
           getGraphVisualizationData(),
           getTriplesByCategory(),
+          getAllHybridSignals(),
         ])
 
       setEnhancedProfile(enhanced)
@@ -924,6 +929,7 @@ export default function ProfileDashboard() {
         edges: graphViz.edges,
         triplesByCategory: triplesCat,
       })
+      setDomainSignals(hybridSignals)
     } catch (error) {
       console.warn('Phase 2 data loading warning:', error)
     }
@@ -2114,31 +2120,69 @@ export default function ProfileDashboard() {
                               : getScoreInterpretation(domain.domainId, domain.score ?? 0)
                             }
                           </span>
-                          <span className={clsx(
-                            "font-bold",
-                            (domain.confidence ?? 0) < 0.05 ? "text-gray-400" : "text-gray-900"
-                          )}>
-                            {(domain.confidence ?? 0) < 0.05
-                              ? "—"
-                              : `${((domain.score ?? 0) * 100).toFixed(0)}%`
+                          {(() => {
+                            const score = domain.score ?? 0
+                            const conf = domain.confidence ?? 0
+                            // Calculate margin of error: lower confidence = wider interval
+                            const margin = (1 - conf) * 0.25 // Max ±25% when confidence is 0
+                            const low = Math.max(0, score - margin)
+                            const high = Math.min(1, score + margin)
+
+                            if (conf < 0.05) {
+                              return <span className="font-bold text-gray-400">—</span>
                             }
-                          </span>
+
+                            return (
+                              <span className="font-bold text-gray-900">
+                                {(score * 100).toFixed(0)}%
+                                <span className="font-normal text-xs text-gray-500 ml-1">
+                                  ({(low * 100).toFixed(0)}-{(high * 100).toFixed(0)}%)
+                                </span>
+                              </span>
+                            )
+                          })()}
                         </div>
-                        <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
-                          {(domain.confidence ?? 0) < 0.05 ? (
-                            <div
-                              className="h-full rounded-full bg-gray-300 animate-pulse"
-                              style={{ width: '100%' }}
-                            />
-                          ) : (
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{
-                                width: `${(domain.score ?? 0) * 100}%`,
-                                backgroundColor: DOMAIN_COLORS[domain.domainId] || '#6b7280',
-                              }}
-                            />
-                          )}
+                        <div className="h-3 bg-gray-100 rounded-full overflow-hidden relative">
+                          {(() => {
+                            const score = domain.score ?? 0
+                            const conf = domain.confidence ?? 0
+                            const margin = (1 - conf) * 0.25
+                            const low = Math.max(0, score - margin)
+                            const high = Math.min(1, score + margin)
+                            const color = DOMAIN_COLORS[domain.domainId] || '#6b7280'
+
+                            if (conf < 0.05) {
+                              return (
+                                <div
+                                  className="h-full rounded-full bg-gray-300 animate-pulse"
+                                  style={{ width: '100%' }}
+                                />
+                              )
+                            }
+
+                            return (
+                              <>
+                                {/* Confidence interval range (lighter) */}
+                                <div
+                                  className="absolute h-full rounded-full transition-all"
+                                  style={{
+                                    left: `${low * 100}%`,
+                                    width: `${(high - low) * 100}%`,
+                                    backgroundColor: color,
+                                    opacity: 0.25,
+                                  }}
+                                />
+                                {/* Actual score (solid) */}
+                                <div
+                                  className="h-full rounded-full transition-all relative z-10"
+                                  style={{
+                                    width: `${score * 100}%`,
+                                    backgroundColor: color,
+                                  }}
+                                />
+                              </>
+                            )
+                          })()}
                         </div>
                       </div>
 
@@ -2200,6 +2244,28 @@ export default function ProfileDashboard() {
                           </div>
                         )}
                       </div>
+
+                      {/* Signal source indicators */}
+                      {domainSignals[domain.domainId] && domainSignals[domain.domainId].length > 0 && (
+                        <div className="flex items-center gap-1 mt-2">
+                          <span className="text-xs text-gray-500 mr-1">Sources:</span>
+                          {domainSignals[domain.domainId].some(s => s.signalType === 'liwc') && (
+                            <span className="px-1.5 py-0.5 text-xs font-medium rounded bg-blue-100 text-blue-700 border border-blue-200" title="LIWC word-matching analysis">
+                              L
+                            </span>
+                          )}
+                          {domainSignals[domain.domainId].some(s => s.signalType === 'embedding') && (
+                            <span className="px-1.5 py-0.5 text-xs font-medium rounded bg-purple-100 text-purple-700 border border-purple-200" title="Semantic embedding similarity">
+                              E
+                            </span>
+                          )}
+                          {domainSignals[domain.domainId].some(s => s.signalType === 'llm') && (
+                            <span className="px-1.5 py-0.5 text-xs font-medium rounded bg-amber-100 text-amber-700 border border-amber-200" title="AI deep analysis">
+                              A
+                            </span>
+                          )}
+                        </div>
+                      )}
 
                       {/* Click hint */}
                       <p className="text-xs text-primary-500 font-medium flex items-center gap-1">
@@ -2444,6 +2510,145 @@ export default function ProfileDashboard() {
                     <Line type="monotone" dataKey="big_five_extraversion" stroke="#f59e0b" name="Extraversion" dot={false} />
                     <Line type="monotone" dataKey="big_five_agreeableness" stroke="#10b981" name="Agreeable." dot={false} />
                     <Line type="monotone" dataKey="big_five_neuroticism" stroke="#ef4444" name="Neuroticism" dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* Dark Triad History Chart */}
+          {Object.keys(trends).length > 0 && (
+            <div className="bg-white rounded-xl p-6 border border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                Score History (Dark Triad)
+              </h2>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={(() => {
+                      const darkTriad = ['dark_triad_narcissism', 'dark_triad_machiavellianism', 'dark_triad_psychopathy']
+                      const allDates = new Set<string>()
+                      darkTriad.forEach((trait) => {
+                        trends[trait]?.history?.forEach((h) => {
+                          allDates.add(new Date(h.timestamp).toLocaleDateString())
+                        })
+                      })
+                      return Array.from(allDates)
+                        .slice(0, 10)
+                        .map((date) => {
+                          const point: Record<string, string | number> = { date }
+                          darkTriad.forEach((trait) => {
+                            const h = trends[trait]?.history?.find(
+                              (x) => new Date(x.timestamp).toLocaleDateString() === date
+                            )
+                            if (h) point[trait] = Math.round(h.score * 100)
+                          })
+                          return point
+                        })
+                    })()}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="dark_triad_narcissism" stroke="#ef4444" name="Narcissism" dot={false} />
+                    <Line type="monotone" dataKey="dark_triad_machiavellianism" stroke="#7c3aed" name="Machiavellianism" dot={false} />
+                    <Line type="monotone" dataKey="dark_triad_psychopathy" stroke="#374151" name="Psychopathy" dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* Emotional Intelligence History Chart */}
+          {Object.keys(trends).length > 0 && (
+            <div className="bg-white rounded-xl p-6 border border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                Score History (Emotional)
+              </h2>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={(() => {
+                      const emotional = ['emotional_empathy', 'emotional_intelligence', 'emotional_attachment', 'emotional_love_languages', 'emotional_communication']
+                      const allDates = new Set<string>()
+                      emotional.forEach((trait) => {
+                        trends[trait]?.history?.forEach((h) => {
+                          allDates.add(new Date(h.timestamp).toLocaleDateString())
+                        })
+                      })
+                      return Array.from(allDates)
+                        .slice(0, 10)
+                        .map((date) => {
+                          const point: Record<string, string | number> = { date }
+                          emotional.forEach((trait) => {
+                            const h = trends[trait]?.history?.find(
+                              (x) => new Date(x.timestamp).toLocaleDateString() === date
+                            )
+                            if (h) point[trait] = Math.round(h.score * 100)
+                          })
+                          return point
+                        })
+                    })()}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="emotional_empathy" stroke="#ec4899" name="Empathy" dot={false} />
+                    <Line type="monotone" dataKey="emotional_intelligence" stroke="#f59e0b" name="EQ" dot={false} />
+                    <Line type="monotone" dataKey="emotional_attachment" stroke="#3b82f6" name="Attachment" dot={false} />
+                    <Line type="monotone" dataKey="emotional_love_languages" stroke="#10b981" name="Love Lang." dot={false} />
+                    <Line type="monotone" dataKey="emotional_communication" stroke="#8b5cf6" name="Comm. Style" dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* Motivation & Decision Making History Chart */}
+          {Object.keys(trends).length > 0 && (
+            <div className="bg-white rounded-xl p-6 border border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                Score History (Motivation & Decision-Making)
+              </h2>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={(() => {
+                      const traits = ['motivation_achievement', 'motivation_self_efficacy', 'motivation_growth_mindset', 'decision_risk_tolerance', 'decision_time_orientation']
+                      const allDates = new Set<string>()
+                      traits.forEach((trait) => {
+                        trends[trait]?.history?.forEach((h) => {
+                          allDates.add(new Date(h.timestamp).toLocaleDateString())
+                        })
+                      })
+                      return Array.from(allDates)
+                        .slice(0, 10)
+                        .map((date) => {
+                          const point: Record<string, string | number> = { date }
+                          traits.forEach((trait) => {
+                            const h = trends[trait]?.history?.find(
+                              (x) => new Date(x.timestamp).toLocaleDateString() === date
+                            )
+                            if (h) point[trait] = Math.round(h.score * 100)
+                          })
+                          return point
+                        })
+                    })()}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="motivation_achievement" stroke="#f59e0b" name="Achievement" dot={false} />
+                    <Line type="monotone" dataKey="motivation_self_efficacy" stroke="#10b981" name="Self-Efficacy" dot={false} />
+                    <Line type="monotone" dataKey="motivation_growth_mindset" stroke="#3b82f6" name="Growth Mind." dot={false} />
+                    <Line type="monotone" dataKey="decision_risk_tolerance" stroke="#ef4444" name="Risk Tol." dot={false} />
+                    <Line type="monotone" dataKey="decision_time_orientation" stroke="#8b5cf6" name="Time Orient." dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

@@ -22,7 +22,7 @@ export async function initSqlDatabase(): Promise<Database> {
     })
 
     // Try to load existing database from localStorage
-    const savedDb = localStorage.getItem('digital_twin_sql_db')
+    const savedDb = localStorage.getItem('qmu_sql_db') || localStorage.getItem('digital_twin_sql_db') // Migration: check both keys
     if (savedDb) {
       const binaryArray = Uint8Array.from(atob(savedDb), c => c.charCodeAt(0))
       db = new SQL.Database(binaryArray)
@@ -54,7 +54,7 @@ export function saveDatabase(): void {
     binary += String.fromCharCode.apply(null, chunk as unknown as number[])
   }
   const base64 = btoa(binary)
-  localStorage.setItem('digital_twin_sql_db', base64)
+  localStorage.setItem('qmu_sql_db', base64)
   pendingSave = false
 }
 

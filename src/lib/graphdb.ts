@@ -78,7 +78,7 @@ export async function initGraphDB(): Promise<boolean> {
 
     // Create IndexedDB-backed Level instance for browser
     // Level v10 auto-detects browser and uses IndexedDB via browser-level
-    levelDb = new Level('digital-twin-graph', {
+    levelDb = new Level('qmu-graph', {
       valueEncoding: 'json',
     })
 
