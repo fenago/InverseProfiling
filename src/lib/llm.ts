@@ -1,4 +1,11 @@
-import { useStore, ALL_SUPPORTED_LANGUAGES, type LanguageCode } from './store'
+import {
+  useStore,
+  ALL_SUPPORTED_LANGUAGES,
+  RESPONSE_SIZE_CONFIG,
+  SYSTEM_PROMPT_PRESETS,
+  type LanguageCode,
+  type ResponseSize,
+} from './store'
 import { db, logActivity } from './db'
 import { FilesetResolver, LlmInference } from '@mediapipe/tasks-genai'
 import {
@@ -124,7 +131,7 @@ Keep responses concise but meaningful. Be warm and genuine.`
 
 // Cache for adaptive system prompt
 let cachedAdaptivePrompt: string | null = null
-let cachedLanguage: LanguageCode | null = null
+let cachedLanguage: string | null = null // Composite key: "language-responseSize"
 let lastAdaptivePromptUpdate = 0
 const PROMPT_CACHE_DURATION_MS = 5 * 60 * 1000 // 5 minutes
 
@@ -140,34 +147,59 @@ function getLanguageInstruction(language: LanguageCode): string {
 }
 
 /**
- * Get the system prompt - adaptive if profile data available, default otherwise
+ * Get the user's selected system prompt preset
  */
-async function getSystemPrompt(language: LanguageCode = 'en'): Promise<string> {
-  const now = Date.now()
+function getUserSystemPrompt(): string {
+  const store = useStore.getState()
+  const preset = store.settings.systemPromptPreset
 
-  // Use cache if recent and language hasn't changed
-  if (cachedAdaptivePrompt && cachedLanguage === language && (now - lastAdaptivePromptUpdate) < PROMPT_CACHE_DURATION_MS) {
+  if (preset === 'custom') {
+    // Return user's custom prompt, or default if empty
+    return store.settings.customSystemPrompt || DEFAULT_SYSTEM_PROMPT
+  }
+
+  // Find the preset and return its prompt
+  const presetConfig = SYSTEM_PROMPT_PRESETS.find(p => p.id === preset)
+  return presetConfig?.prompt || DEFAULT_SYSTEM_PROMPT
+}
+
+/**
+ * Get the system prompt - combines user preset with adaptive profile if available
+ * Includes response size instruction based on user settings
+ */
+async function getSystemPrompt(language: LanguageCode = 'en', responseSize: ResponseSize = 'medium'): Promise<string> {
+  const now = Date.now()
+  const store = useStore.getState()
+  const cacheKey = `${language}-${responseSize}-${store.settings.systemPromptPreset}`
+
+  // Use cache if recent and settings haven't changed
+  if (cachedAdaptivePrompt && cachedLanguage === cacheKey && (now - lastAdaptivePromptUpdate) < PROMPT_CACHE_DURATION_MS) {
     return cachedAdaptivePrompt
   }
 
-  let basePrompt = DEFAULT_SYSTEM_PROMPT
+  // Start with user's selected preset
+  let basePrompt = getUserSystemPrompt()
   const languageInstruction = getLanguageInstruction(language)
+  const responseSizeInstruction = `\n\n${RESPONSE_SIZE_CONFIG[responseSize].promptInstruction}`
 
   try {
     const profile = await getAdaptationProfile()
 
-    // If we have meaningful profile data, use adaptive prompt
+    // If we have meaningful profile data and user hasn't set a custom prompt,
+    // blend adaptive insights with their chosen personality preset
     if (profile.dataPointsUsed >= 3 && profile.confidence > 0.1) {
-      basePrompt = generateAdaptiveSystemPrompt(profile)
-      console.log(`Using adaptive system prompt (confidence: ${(profile.confidence * 100).toFixed(1)}%, ${profile.dataPointsUsed} data points)`)
+      const adaptiveInsights = generateAdaptiveSystemPrompt(profile)
+      // Append adaptive insights to the base prompt instead of replacing
+      basePrompt = `${basePrompt}\n\n--- Personalization (based on your conversation history) ---\n${adaptiveInsights}`
+      console.log(`Enhanced with adaptive insights (confidence: ${(profile.confidence * 100).toFixed(1)}%, ${profile.dataPointsUsed} data points)`)
     }
   } catch (error) {
-    console.warn('Failed to generate adaptive prompt, using default:', error)
+    console.warn('Failed to generate adaptive prompt, using preset only:', error)
   }
 
-  // Add language instruction
-  cachedAdaptivePrompt = basePrompt + languageInstruction
-  cachedLanguage = language
+  // Add language and response size instructions
+  cachedAdaptivePrompt = basePrompt + responseSizeInstruction + languageInstruction
+  cachedLanguage = cacheKey
   lastAdaptivePromptUpdate = now
 
   return cachedAdaptivePrompt
@@ -217,7 +249,7 @@ class LLMEngine {
         baseOptions: {
           modelAssetPath: model.url,
         },
-        maxTokens: 1024,
+        maxTokens: store.settings.contextWindowSize || 8192, // Gemma 3n supports 32K natively
         topK: 40,
         temperature: 0.8,
         randomSeed: Math.floor(Math.random() * 10000),
@@ -319,8 +351,9 @@ class LLMEngine {
     store.setGenerating(true)
 
     try {
-      // Get adaptive system prompt based on user's profile and language setting
-      const systemPrompt = await getSystemPrompt(store.settings.language)
+      // Get adaptive system prompt based on user's profile, language, and response size settings
+      const responseSizeSetting = store.settings.responseSize || 'medium'
+      const systemPrompt = await getSystemPrompt(store.settings.language, responseSizeSetting)
 
       // Build the prompt with system context and conversation history
       let prompt = `<start_of_turn>system
@@ -329,15 +362,33 @@ ${systemPrompt}
 `
 
       // Add conversation history if provided (excluding the current message which we add separately)
+      // Use response size setting to determine history limit
       if (conversationHistory && conversationHistory.length > 0) {
-        // Limit to last 20 messages to avoid context overflow
-        const recentHistory = conversationHistory.slice(-20)
-        for (const msg of recentHistory) {
+        const maxHistoryChars = RESPONSE_SIZE_CONFIG[responseSizeSetting].maxHistoryChars
+
+        // Build history from most recent messages, stopping when we exceed limit
+        const historyMessages: string[] = []
+        let historyCharCount = 0
+
+        // Process from newest to oldest
+        for (let i = conversationHistory.length - 1; i >= 0; i--) {
+          const msg = conversationHistory[i]
           const turnRole = msg.role === 'user' ? 'user' : 'model'
-          prompt += `<start_of_turn>${turnRole}
-${msg.content}
-<end_of_turn>
-`
+          const formattedMsg = `<start_of_turn>${turnRole}\n${msg.content}\n<end_of_turn>\n`
+
+          if (historyCharCount + formattedMsg.length > maxHistoryChars) {
+            // Would exceed limit, stop adding history
+            console.log(`Truncating conversation history at ${historyMessages.length} messages (${historyCharCount} chars, limit: ${maxHistoryChars})`)
+            break
+          }
+
+          historyMessages.unshift(formattedMsg) // Add to front to maintain order
+          historyCharCount += formattedMsg.length
+        }
+
+        // Add the truncated history to prompt
+        for (const formattedMsg of historyMessages) {
+          prompt += formattedMsg
         }
       }
 
@@ -403,8 +454,9 @@ ${userMessage}
     store.setGenerating(true)
 
     try {
-      // Get adaptive system prompt based on user's profile and language setting
-      const systemPrompt = await getSystemPrompt(store.settings.language)
+      // Get adaptive system prompt based on user's profile, language, and response size settings
+      const responseSizeSetting = store.settings.responseSize || 'medium'
+      const systemPrompt = await getSystemPrompt(store.settings.language, responseSizeSetting)
 
       // Build the multimodal prompt array
       const promptParts: MultimodalPrompt = [
@@ -413,14 +465,37 @@ ${userMessage}
         '\n<end_of_turn>\n',
       ]
 
-      // Add conversation history if provided
+      // Add conversation history if provided (with token-aware truncation)
       if (conversationHistory && conversationHistory.length > 0) {
-        const recentHistory = conversationHistory.slice(-20)
-        for (const msg of recentHistory) {
+        // Reserve tokens: ~300 for system prompt, ~100 for multimodal content overhead, ~400 for response
+        // That leaves ~220 tokens for conversation history
+        const MAX_HISTORY_CHARS = 900 // ~225 tokens * 4 chars/token
+
+        // Build history from most recent messages, stopping when we exceed limit
+        const historyParts: Array<{ parts: string[]; charCount: number }> = []
+        let historyCharCount = 0
+
+        // Process from newest to oldest
+        for (let i = conversationHistory.length - 1; i >= 0; i--) {
+          const msg = conversationHistory[i]
           const turnRole = msg.role === 'user' ? 'user' : 'model'
-          promptParts.push(`<start_of_turn>${turnRole}\n`)
-          promptParts.push(msg.content)
-          promptParts.push('\n<end_of_turn>\n')
+          const charCount = msg.content.length + 30 // Overhead for turn markers
+
+          if (historyCharCount + charCount > MAX_HISTORY_CHARS) {
+            console.log(`Truncating multimodal history at ${historyParts.length} messages (${historyCharCount} chars)`)
+            break
+          }
+
+          historyParts.unshift({
+            parts: [`<start_of_turn>${turnRole}\n`, msg.content, '\n<end_of_turn>\n'],
+            charCount,
+          })
+          historyCharCount += charCount
+        }
+
+        // Add the truncated history to prompt
+        for (const { parts } of historyParts) {
+          promptParts.push(...parts)
         }
       }
 

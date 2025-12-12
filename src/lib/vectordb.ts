@@ -66,6 +66,7 @@ async function initEmbeddingPipeline(): Promise<FeatureExtractionPipeline | null
   try {
     console.log('Loading embedding model:', EMBEDDING_MODEL)
 
+    // @ts-expect-error - HuggingFace pipeline types are too complex for TypeScript
     embeddingPipeline = await pipeline('feature-extraction', EMBEDDING_MODEL, {
       dtype: 'q8', // Use quantized int8 model for browser (v3 API)
     })
@@ -594,6 +595,36 @@ export async function getVectorStats(): Promise<{
  */
 export function isEmbeddingAvailable(): boolean {
   return embeddingPipeline !== null && !embeddingLoadFailed
+}
+
+/**
+ * Compute cosine similarity between two vectors
+ * Returns similarity score between -1 and 1
+ */
+export function computeCosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0
+
+  let dotProduct = 0
+  let normA = 0
+  let normB = 0
+
+  for (let i = 0; i < a.length; i++) {
+    dotProduct += a[i] * b[i]
+    normA += a[i] * a[i]
+    normB += b[i] * b[i]
+  }
+
+  if (normA === 0 || normB === 0) return 0
+  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB))
+}
+
+/**
+ * Ensure embedding pipeline is initialized
+ * Call this during app startup to pre-load the model
+ */
+export async function ensureEmbeddingReady(): Promise<boolean> {
+  const pipe = await initEmbeddingPipeline()
+  return pipe !== null
 }
 
 /**

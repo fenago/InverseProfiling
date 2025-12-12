@@ -6,6 +6,11 @@ import initSqlJs, { Database } from 'sql.js'
 let db: Database | null = null
 let initPromise: Promise<Database> | null = null
 
+// Debounced save state - prevents excessive saves to localStorage
+let saveTimeout: ReturnType<typeof setTimeout> | null = null
+let pendingSave = false
+const SAVE_DEBOUNCE_MS = 1000 // Max save frequency: once per second
+
 // Initialize SQL.js and create database
 export async function initSqlDatabase(): Promise<Database> {
   if (db) return db
@@ -21,6 +26,8 @@ export async function initSqlDatabase(): Promise<Database> {
     if (savedDb) {
       const binaryArray = Uint8Array.from(atob(savedDb), c => c.charCodeAt(0))
       db = new SQL.Database(binaryArray)
+      // Run migrations to ensure all tables exist (handles schema updates)
+      await runMigrations(db)
     } else {
       db = new SQL.Database()
       await createTables(db)
@@ -33,12 +40,47 @@ export async function initSqlDatabase(): Promise<Database> {
   return initPromise
 }
 
-// Save database to localStorage
+// Save database to localStorage (immediate)
 export function saveDatabase(): void {
   if (!db) return
   const data = db.export()
-  const base64 = btoa(String.fromCharCode(...data))
+
+  // Process in chunks to avoid stack overflow with large databases
+  // The spread operator (...data) fails when the array is too large
+  const CHUNK_SIZE = 8192
+  let binary = ''
+  for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+    const chunk = data.subarray(i, Math.min(i + CHUNK_SIZE, data.length))
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[])
+  }
+  const base64 = btoa(binary)
   localStorage.setItem('digital_twin_sql_db', base64)
+  pendingSave = false
+}
+
+// Schedule a debounced save - coalesces multiple saves into one
+// Use this for high-frequency operations to avoid excessive localStorage writes
+export function scheduleSave(): void {
+  pendingSave = true
+  if (saveTimeout) return // Already scheduled
+
+  saveTimeout = setTimeout(() => {
+    saveTimeout = null
+    if (pendingSave) {
+      saveDatabase()
+    }
+  }, SAVE_DEBOUNCE_MS)
+}
+
+// Flush any pending saves immediately (call before page unload)
+export function flushPendingSave(): void {
+  if (saveTimeout) {
+    clearTimeout(saveTimeout)
+    saveTimeout = null
+  }
+  if (pendingSave) {
+    saveDatabase()
+  }
 }
 
 // Create all Phase 2 tables
@@ -156,6 +198,155 @@ async function createTables(database: Database): Promise<void> {
       migration_script TEXT
     )
   `)
+
+  // === HYBRID SIGNAL SCORES TABLE (stores LIWC/Embedding/LLM signals) ===
+  database.run(`
+    CREATE TABLE IF NOT EXISTS hybrid_signal_scores (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      domain_id TEXT NOT NULL,
+      signal_type TEXT NOT NULL,
+      score REAL NOT NULL DEFAULT 0.5,
+      confidence REAL NOT NULL DEFAULT 0.0,
+      weight_used REAL NOT NULL DEFAULT 0.0,
+      evidence_text TEXT,
+      matched_words TEXT,
+      prototype_similarity REAL,
+      last_updated TEXT DEFAULT (datetime('now')),
+      UNIQUE(domain_id, signal_type)
+    )
+  `)
+  database.run('CREATE INDEX IF NOT EXISTS idx_hybrid_signal_domain ON hybrid_signal_scores(domain_id)')
+}
+
+// Run migrations for existing databases to ensure all tables exist
+// This handles schema updates for databases created before new tables were added
+async function runMigrations(database: Database): Promise<void> {
+  // === MATCHED WORDS TABLE (added in schema update) ===
+  database.run(`
+    CREATE TABLE IF NOT EXISTS matched_words (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category TEXT NOT NULL,
+      feature_name TEXT NOT NULL,
+      word TEXT NOT NULL,
+      count INTEGER DEFAULT 1,
+      last_seen TEXT DEFAULT (datetime('now')),
+      UNIQUE(category, feature_name, word)
+    )
+  `)
+  database.run('CREATE INDEX IF NOT EXISTS idx_matched_words_feature ON matched_words(category, feature_name)')
+
+  // === SCHEMA VERSIONS TABLE ===
+  database.run(`
+    CREATE TABLE IF NOT EXISTS schema_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      database_name TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      applied_at TEXT DEFAULT (datetime('now')),
+      migration_script TEXT
+    )
+  `)
+
+  // === CONFIDENCE FACTORS TABLE ===
+  database.run(`
+    CREATE TABLE IF NOT EXISTS confidence_factors (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      domain_id TEXT NOT NULL,
+      factor_name TEXT NOT NULL,
+      value REAL NOT NULL DEFAULT 0.0,
+      weight REAL DEFAULT 1.0,
+      last_updated TEXT DEFAULT (datetime('now')),
+      UNIQUE(domain_id, factor_name)
+    )
+  `)
+
+  // === HYBRID SIGNAL SCORES TABLE (stores LIWC/Embedding/LLM signals) ===
+  database.run(`
+    CREATE TABLE IF NOT EXISTS hybrid_signal_scores (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      domain_id TEXT NOT NULL,
+      signal_type TEXT NOT NULL,
+      score REAL NOT NULL DEFAULT 0.5,
+      confidence REAL NOT NULL DEFAULT 0.0,
+      weight_used REAL NOT NULL DEFAULT 0.0,
+      evidence_text TEXT,
+      matched_words TEXT,
+      prototype_similarity REAL,
+      last_updated TEXT DEFAULT (datetime('now')),
+      UNIQUE(domain_id, signal_type)
+    )
+  `)
+  database.run('CREATE INDEX IF NOT EXISTS idx_hybrid_signal_domain ON hybrid_signal_scores(domain_id)')
+
+  // === ENSURE ALL 39 PRD DOMAINS EXIST (migration for existing databases) ===
+  const allDomains = [
+    // Category A: Core Personality (Big Five)
+    { id: 'big_five_openness', category: 'Core Personality (Big Five)' },
+    { id: 'big_five_conscientiousness', category: 'Core Personality (Big Five)' },
+    { id: 'big_five_extraversion', category: 'Core Personality (Big Five)' },
+    { id: 'big_five_agreeableness', category: 'Core Personality (Big Five)' },
+    { id: 'big_five_neuroticism', category: 'Core Personality (Big Five)' },
+    // Category B: Dark Personality
+    { id: 'dark_triad_narcissism', category: 'Dark Personality' },
+    { id: 'dark_triad_machiavellianism', category: 'Dark Personality' },
+    { id: 'dark_triad_psychopathy', category: 'Dark Personality' },
+    // Category C: Emotional/Social Intelligence
+    { id: 'emotional_empathy', category: 'Emotional/Social Intelligence' },
+    { id: 'emotional_intelligence', category: 'Emotional/Social Intelligence' },
+    { id: 'attachment_style', category: 'Emotional/Social Intelligence' },
+    { id: 'love_languages', category: 'Emotional/Social Intelligence' },
+    { id: 'communication_style', category: 'Emotional/Social Intelligence' },
+    // Category D: Decision Making & Motivation
+    { id: 'risk_tolerance', category: 'Decision Making & Motivation' },
+    { id: 'decision_style', category: 'Decision Making & Motivation' },
+    { id: 'time_orientation', category: 'Decision Making & Motivation' },
+    { id: 'achievement_motivation', category: 'Decision Making & Motivation' },
+    { id: 'self_efficacy', category: 'Decision Making & Motivation' },
+    { id: 'locus_of_control', category: 'Decision Making & Motivation' },
+    { id: 'growth_mindset', category: 'Decision Making & Motivation' },
+    // Category E: Values & Wellbeing
+    { id: 'personal_values', category: 'Values & Wellbeing' },
+    { id: 'interests', category: 'Values & Wellbeing' },
+    { id: 'life_satisfaction', category: 'Values & Wellbeing' },
+    { id: 'stress_coping', category: 'Values & Wellbeing' },
+    { id: 'social_support', category: 'Values & Wellbeing' },
+    { id: 'authenticity', category: 'Values & Wellbeing' },
+    // Category F: Cognitive/Learning
+    { id: 'cognitive_abilities', category: 'Cognitive/Learning' },
+    { id: 'creativity', category: 'Cognitive/Learning' },
+    { id: 'learning_styles', category: 'Cognitive/Learning' },
+    { id: 'information_processing', category: 'Cognitive/Learning' },
+    { id: 'metacognition', category: 'Cognitive/Learning' },
+    { id: 'executive_functions', category: 'Cognitive/Learning' },
+    // Category G: Social/Cultural/Values
+    { id: 'social_cognition', category: 'Social/Cultural/Values' },
+    { id: 'political_ideology', category: 'Social/Cultural/Values' },
+    { id: 'cultural_values', category: 'Social/Cultural/Values' },
+    { id: 'moral_reasoning', category: 'Social/Cultural/Values' },
+    { id: 'work_career_style', category: 'Social/Cultural/Values' },
+    // Category H: Sensory/Aesthetic
+    { id: 'sensory_processing', category: 'Sensory/Aesthetic' },
+    { id: 'aesthetic_preferences', category: 'Sensory/Aesthetic' },
+  ]
+
+  for (const domain of allDomains) {
+    // Insert domain if it doesn't exist
+    database.run(
+      `INSERT OR IGNORE INTO domain_scores (domain_id, domain_category, score, confidence)
+       VALUES (?, ?, 0.5, 0.0)`,
+      [domain.id, domain.category]
+    )
+    // Insert confidence factors for each domain if they don't exist
+    const factors = ['data_volume', 'consistency', 'temporal_stability', 'cross_validation']
+    for (const factor of factors) {
+      database.run(
+        `INSERT OR IGNORE INTO confidence_factors (domain_id, factor_name, value, weight)
+         VALUES (?, ?, 0.0, 0.25)`,
+        [domain.id, factor]
+      )
+    }
+  }
+
+  console.log('Database migrations completed (39 PRD domains ensured)')
 }
 
 // Insert initial data for all domains, features, and metrics
@@ -166,40 +357,62 @@ async function insertInitialData(database: Database): Promise<void> {
     VALUES ('default', datetime('now'), datetime('now'))
   `)
 
-  // === INSERT ALL 26 DOMAINS ===
+  // === INSERT ALL 39 DOMAINS (from Fine-Tuned-Psychometrics.md PRD) ===
   const domains = [
-    // Big Five Personality
-    { id: 'big_five_openness', category: 'personality' },
-    { id: 'big_five_conscientiousness', category: 'personality' },
-    { id: 'big_five_extraversion', category: 'personality' },
-    { id: 'big_five_agreeableness', category: 'personality' },
-    { id: 'big_five_neuroticism', category: 'personality' },
-    // Cognitive
-    { id: 'cognitive_abilities', category: 'cognitive' },
-    { id: 'information_processing', category: 'cognitive' },
-    { id: 'metacognition', category: 'cognitive' },
-    { id: 'executive_functions', category: 'cognitive' },
-    { id: 'creativity', category: 'cognitive' },
-    // Emotional
-    { id: 'emotional_intelligence', category: 'emotional' },
-    { id: 'resilience_coping', category: 'emotional' },
-    { id: 'attachment_style', category: 'emotional' },
-    // Values & Beliefs
-    { id: 'values_motivations', category: 'values' },
-    { id: 'moral_reasoning', category: 'values' },
-    { id: 'political_ideology', category: 'values' },
-    { id: 'cultural_values', category: 'values' },
-    // Behavioral Styles
-    { id: 'decision_making', category: 'behavioral' },
-    { id: 'communication_style', category: 'behavioral' },
-    { id: 'learning_style', category: 'behavioral' },
-    { id: 'work_career_style', category: 'behavioral' },
-    // Other
-    { id: 'social_cognition', category: 'social' },
-    { id: 'mindset_growth_fixed', category: 'mindset' },
-    { id: 'time_perspective', category: 'temporal' },
-    { id: 'sensory_processing', category: 'sensory' },
-    { id: 'aesthetic_preferences', category: 'aesthetic' },
+    // Category A: Core Personality (Domains 1-5) - Big Five
+    { id: 'big_five_openness', category: 'Core Personality (Big Five)' },
+    { id: 'big_five_conscientiousness', category: 'Core Personality (Big Five)' },
+    { id: 'big_five_extraversion', category: 'Core Personality (Big Five)' },
+    { id: 'big_five_agreeableness', category: 'Core Personality (Big Five)' },
+    { id: 'big_five_neuroticism', category: 'Core Personality (Big Five)' },
+
+    // Category B: Dark Personality (Domains 6-8)
+    { id: 'dark_triad_narcissism', category: 'Dark Personality' },
+    { id: 'dark_triad_machiavellianism', category: 'Dark Personality' },
+    { id: 'dark_triad_psychopathy', category: 'Dark Personality' },
+
+    // Category C: Emotional/Social Intelligence (Domains 9-13)
+    { id: 'emotional_empathy', category: 'Emotional/Social Intelligence' },
+    { id: 'emotional_intelligence', category: 'Emotional/Social Intelligence' },
+    { id: 'attachment_style', category: 'Emotional/Social Intelligence' },
+    { id: 'love_languages', category: 'Emotional/Social Intelligence' },
+    { id: 'communication_style', category: 'Emotional/Social Intelligence' },
+
+    // Category D: Decision Making & Motivation (Domains 14-20)
+    { id: 'risk_tolerance', category: 'Decision Making & Motivation' },
+    { id: 'decision_style', category: 'Decision Making & Motivation' },
+    { id: 'time_orientation', category: 'Decision Making & Motivation' },
+    { id: 'achievement_motivation', category: 'Decision Making & Motivation' },
+    { id: 'self_efficacy', category: 'Decision Making & Motivation' },
+    { id: 'locus_of_control', category: 'Decision Making & Motivation' },
+    { id: 'growth_mindset', category: 'Decision Making & Motivation' },
+
+    // Category E: Values & Wellbeing (Domains 21-26)
+    { id: 'personal_values', category: 'Values & Wellbeing' },
+    { id: 'interests', category: 'Values & Wellbeing' },
+    { id: 'life_satisfaction', category: 'Values & Wellbeing' },
+    { id: 'stress_coping', category: 'Values & Wellbeing' },
+    { id: 'social_support', category: 'Values & Wellbeing' },
+    { id: 'authenticity', category: 'Values & Wellbeing' },
+
+    // Category F: Cognitive/Learning (Domains 27-32)
+    { id: 'cognitive_abilities', category: 'Cognitive/Learning' },
+    { id: 'creativity', category: 'Cognitive/Learning' },
+    { id: 'learning_styles', category: 'Cognitive/Learning' },
+    { id: 'information_processing', category: 'Cognitive/Learning' },
+    { id: 'metacognition', category: 'Cognitive/Learning' },
+    { id: 'executive_functions', category: 'Cognitive/Learning' },
+
+    // Category G: Social/Cultural/Values (Domains 33-37)
+    { id: 'social_cognition', category: 'Social/Cultural/Values' },
+    { id: 'political_ideology', category: 'Social/Cultural/Values' },
+    { id: 'cultural_values', category: 'Social/Cultural/Values' },
+    { id: 'moral_reasoning', category: 'Social/Cultural/Values' },
+    { id: 'work_career_style', category: 'Social/Cultural/Values' },
+
+    // Category H: Sensory/Aesthetic (Domains 38-39)
+    { id: 'sensory_processing', category: 'Sensory/Aesthetic' },
+    { id: 'aesthetic_preferences', category: 'Sensory/Aesthetic' },
   ]
 
   for (const domain of domains) {
@@ -330,7 +543,7 @@ async function insertInitialData(database: Database): Promise<void> {
     []
   )
 
-  saveDatabase()
+  scheduleSave()
 }
 
 // ==================== QUERY FUNCTIONS ====================
@@ -400,7 +613,7 @@ export async function updateDomainScore(
      WHERE domain_id = ?`,
     [finalScore, rawScore, totalDataPoints, domainId]
   )
-  saveDatabase()
+  scheduleSave()
 }
 
 // Update feature counts
@@ -423,7 +636,7 @@ export async function updateFeatureCount(
      WHERE category = ? AND feature_name = ?`,
     [additionalCount, additionalWords, additionalWords, additionalCount, additionalWords, category, featureName]
   )
-  saveDatabase()
+  scheduleSave()
 }
 
 // Update matched words for a feature (store examples of detected words)
@@ -453,7 +666,7 @@ export async function updateMatchedWords(
       [category, featureName, word, count, count]
     )
   }
-  saveDatabase()
+  scheduleSave()
 }
 
 // Get matched words for a specific feature
@@ -560,7 +773,7 @@ export async function updateBehavioralMetric(
        WHERE metric_name = ?`,
       [newAvg, newCumulative, newMin, newMax, newSampleSize, metricName]
     )
-    saveDatabase()
+    scheduleSave()
   }
 }
 
@@ -599,7 +812,7 @@ export async function recordDomainHistory(
      VALUES (?, ?, ?, ?, ?)`,
     [domainId, score, confidence, dataPointsCount, trigger]
   )
-  saveDatabase()
+  scheduleSave()
 }
 
 // Get domain history for trend analysis
@@ -638,7 +851,7 @@ export async function updateConfidenceFactor(
      WHERE domain_id = ? AND factor_name = ?`,
     [value, domainId, factorName]
   )
-  saveDatabase()
+  scheduleSave()
 }
 
 // Calculate and update domain confidence
@@ -659,7 +872,7 @@ export async function calculateDomainConfidence(domainId: string): Promise<numbe
     `UPDATE domain_scores SET confidence = ? WHERE domain_id = ?`,
     [confidence, domainId]
   )
-  saveDatabase()
+  scheduleSave()
 
   return confidence
 }
@@ -680,7 +893,7 @@ export async function updateSqlProfileStats(
      WHERE id = 'default'`,
     [totalMessages, totalWords, totalSessions]
   )
-  saveDatabase()
+  scheduleSave()
 }
 
 // Get profile completeness
@@ -702,7 +915,7 @@ export async function calculateProfileCompleteness(): Promise<number> {
     `UPDATE profiles SET profile_completeness = ? WHERE id = 'default'`,
     [completeness]
   )
-  saveDatabase()
+  scheduleSave()
 
   return completeness
 }
@@ -733,10 +946,231 @@ export async function clearSqlData(): Promise<void> {
   database.run('UPDATE confidence_factors SET value = 0.0')
   database.run('UPDATE profiles SET total_messages = 0, total_words = 0, total_sessions = 0, profile_completeness = 0.0')
 
-  saveDatabase()
+  scheduleSave()
+}
+
+// ==================== HYBRID SIGNAL FUNCTIONS ====================
+
+// Save or update a hybrid signal score for a domain
+export async function saveHybridSignal(
+  domainId: string,
+  signalType: 'liwc' | 'embedding' | 'llm',
+  score: number,
+  confidence: number,
+  weightUsed: number,
+  evidenceText?: string,
+  matchedWords?: string[],
+  prototypeSimilarity?: number
+): Promise<void> {
+  const database = await getDb()
+
+  const matchedWordsJson = matchedWords ? JSON.stringify(matchedWords) : null
+  // Convert undefined to null for SQL.js compatibility
+  const evidenceTextValue = evidenceText ?? null
+  const prototypeSimilarityValue = prototypeSimilarity ?? null
+
+  database.run(
+    `INSERT INTO hybrid_signal_scores
+     (domain_id, signal_type, score, confidence, weight_used, evidence_text, matched_words, prototype_similarity, last_updated)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(domain_id, signal_type)
+     DO UPDATE SET
+       score = ?,
+       confidence = ?,
+       weight_used = ?,
+       evidence_text = COALESCE(?, evidence_text),
+       matched_words = COALESCE(?, matched_words),
+       prototype_similarity = COALESCE(?, prototype_similarity),
+       last_updated = datetime('now')`,
+    [
+      domainId, signalType, score, confidence, weightUsed, evidenceTextValue, matchedWordsJson, prototypeSimilarityValue,
+      score, confidence, weightUsed, evidenceTextValue, matchedWordsJson, prototypeSimilarityValue
+    ]
+  )
+  scheduleSave()
+}
+
+// Get all hybrid signals for a specific domain
+export async function getHybridSignalsForDomain(domainId: string): Promise<HybridSignalScore[]> {
+  const database = await getDb()
+  const results = database.exec(
+    `SELECT domain_id, signal_type, score, confidence, weight_used, evidence_text, matched_words, prototype_similarity, last_updated
+     FROM hybrid_signal_scores
+     WHERE domain_id = ?
+     ORDER BY signal_type`,
+    [domainId]
+  )
+
+  if (!results.length) return []
+
+  return results[0].values.map((row) => ({
+    domainId: row[0] as string,
+    signalType: row[1] as 'liwc' | 'embedding' | 'llm',
+    score: row[2] as number,
+    confidence: row[3] as number,
+    weightUsed: row[4] as number,
+    evidenceText: row[5] as string | null,
+    matchedWords: row[6] ? JSON.parse(row[6] as string) : null,
+    prototypeSimilarity: row[7] as number | null,
+    lastUpdated: row[8] as string,
+  }))
+}
+
+// Get all hybrid signals grouped by domain
+export async function getAllHybridSignals(): Promise<Record<string, HybridSignalScore[]>> {
+  const database = await getDb()
+  const results = database.exec(`
+    SELECT domain_id, signal_type, score, confidence, weight_used, evidence_text, matched_words, prototype_similarity, last_updated
+    FROM hybrid_signal_scores
+    ORDER BY domain_id, signal_type
+  `)
+
+  if (!results.length) return {}
+
+  const grouped: Record<string, HybridSignalScore[]> = {}
+
+  for (const row of results[0].values) {
+    const domainId = row[0] as string
+    const signal: HybridSignalScore = {
+      domainId,
+      signalType: row[1] as 'liwc' | 'embedding' | 'llm',
+      score: row[2] as number,
+      confidence: row[3] as number,
+      weightUsed: row[4] as number,
+      evidenceText: row[5] as string | null,
+      matchedWords: row[6] ? JSON.parse(row[6] as string) : null,
+      prototypeSimilarity: row[7] as number | null,
+      lastUpdated: row[8] as string,
+    }
+
+    if (!grouped[domainId]) grouped[domainId] = []
+    grouped[domainId].push(signal)
+  }
+
+  return grouped
+}
+
+// Clear all hybrid signals (for testing)
+export async function clearHybridSignals(): Promise<void> {
+  const database = await getDb()
+  database.run('DELETE FROM hybrid_signal_scores')
+  scheduleSave()
+}
+
+// Domain category mapping for hybrid signals
+const DOMAIN_CATEGORIES_MAP: Record<string, string> = {
+  big_five_openness: 'Core Personality (Big Five)',
+  big_five_conscientiousness: 'Core Personality (Big Five)',
+  big_five_extraversion: 'Core Personality (Big Five)',
+  big_five_agreeableness: 'Core Personality (Big Five)',
+  big_five_neuroticism: 'Core Personality (Big Five)',
+  dark_triad_narcissism: 'Dark Personality',
+  dark_triad_machiavellianism: 'Dark Personality',
+  dark_triad_psychopathy: 'Dark Personality',
+  emotional_empathy: 'Emotional/Social Intelligence',
+  emotional_intelligence: 'Emotional/Social Intelligence',
+  attachment_style: 'Emotional/Social Intelligence',
+  love_languages: 'Emotional/Social Intelligence',
+  communication_style: 'Emotional/Social Intelligence',
+  risk_tolerance: 'Decision Making & Motivation',
+  decision_style: 'Decision Making & Motivation',
+  time_orientation: 'Decision Making & Motivation',
+  achievement_motivation: 'Decision Making & Motivation',
+  self_efficacy: 'Decision Making & Motivation',
+  locus_of_control: 'Decision Making & Motivation',
+  growth_mindset: 'Decision Making & Motivation',
+  personal_values: 'Values & Wellbeing',
+  interests: 'Values & Wellbeing',
+  life_satisfaction: 'Values & Wellbeing',
+  stress_coping: 'Values & Wellbeing',
+  social_support: 'Values & Wellbeing',
+  authenticity: 'Values & Wellbeing',
+  cognitive_abilities: 'Cognitive/Learning',
+  creativity: 'Cognitive/Learning',
+  learning_styles: 'Cognitive/Learning',
+  information_processing: 'Cognitive/Learning',
+  metacognition: 'Cognitive/Learning',
+  executive_functions: 'Cognitive/Learning',
+  social_cognition: 'Social/Cultural/Values',
+  political_ideology: 'Social/Cultural/Values',
+  cultural_values: 'Social/Cultural/Values',
+  moral_reasoning: 'Social/Cultural/Values',
+  work_career_style: 'Social/Cultural/Values',
+  sensory_processing: 'Sensory/Aesthetic',
+  aesthetic_preferences: 'Sensory/Aesthetic',
+}
+
+/**
+ * Get domain scores computed from hybrid signals
+ * This aggregates LIWC, Embedding, and LLM signals using weighted averaging
+ * Formula: finalScore = Σ(score × weight × confidence) / Σ(weight × confidence)
+ */
+export async function getDomainScoresFromHybridSignals(): Promise<DomainScore[]> {
+  const allSignals = await getAllHybridSignals()
+  const domainScores: DomainScore[] = []
+
+  for (const [domainId, signals] of Object.entries(allSignals)) {
+    // Skip if no signals
+    if (signals.length === 0) continue
+
+    // Aggregate signals using weighted formula
+    let weightedSum = 0
+    let totalWeight = 0
+    let totalConfidenceWeightedSum = 0
+    let totalBaseWeight = 0
+    let signalCount = 0
+    let latestUpdate = ''
+
+    for (const signal of signals) {
+      if (signal.weightUsed > 0) {
+        const adjustedWeight = signal.weightUsed * signal.confidence
+        weightedSum += signal.score * adjustedWeight
+        totalWeight += adjustedWeight
+        totalConfidenceWeightedSum += signal.confidence * signal.weightUsed
+        totalBaseWeight += signal.weightUsed
+        signalCount++
+        if (signal.lastUpdated > latestUpdate) {
+          latestUpdate = signal.lastUpdated
+        }
+      }
+    }
+
+    // Calculate final aggregated score and confidence
+    const finalScore = totalWeight > 0 ? weightedSum / totalWeight : 0.5
+    const finalConfidence = totalBaseWeight > 0 ? totalConfidenceWeightedSum / totalBaseWeight : 0
+
+    domainScores.push({
+      domainId,
+      category: DOMAIN_CATEGORIES_MAP[domainId] || 'Unknown',
+      score: finalScore,
+      confidence: finalConfidence,
+      dataPointsCount: signalCount,
+      lastUpdated: latestUpdate || new Date().toISOString(),
+    })
+  }
+
+  // Sort by category then domainId
+  domainScores.sort((a, b) => {
+    if (a.category !== b.category) return a.category.localeCompare(b.category)
+    return a.domainId.localeCompare(b.domainId)
+  })
+
+  return domainScores
 }
 
 // ==================== TYPES ====================
+
+export interface HybridSignalScore {
+  domainId: string
+  signalType: 'liwc' | 'embedding' | 'llm'
+  score: number
+  confidence: number
+  weightUsed: number
+  evidenceText: string | null
+  matchedWords: string[] | null
+  prototypeSimilarity: number | null
+  lastUpdated: string
+}
 
 export interface DomainScore {
   domainId: string

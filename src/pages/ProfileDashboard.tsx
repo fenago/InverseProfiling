@@ -39,6 +39,7 @@ import {
   HardDrive,
   Network,
   FileText,
+  Zap,
 } from 'lucide-react'
 import { db, getOrCreateProfile, type UserProfile } from '../lib/db'
 import {
@@ -86,7 +87,8 @@ import {
   getFeatureCounts,
   getBehavioralMetrics,
   getAllMatchedWords,
-  type MatchedWord,
+  getHybridSignalsForDomain,
+  type HybridSignalScore,
 } from '../lib/sqldb'
 import { getVectorStats, getAllEmbeddings } from '../lib/vectordb'
 import {
@@ -98,9 +100,10 @@ import {
   PREDICATES,
 } from '../lib/graphdb'
 
-// Domain Reference Data from research/domain-markers.md
-// Enhanced with descriptions and psychometric sources
+// Domain Reference Data - All 39 psychological domains
+// IDs match PSYCHOLOGICAL_DOMAINS from analysis-config.ts exactly
 const DOMAIN_REFERENCE: DomainReference[] = [
+  // === Category A: Core Personality - Big Five (Domains 1-5) ===
   {
     id: 'big_five_openness',
     name: 'Openness to Experience',
@@ -176,6 +179,317 @@ const DOMAIN_REFERENCE: DomainReference[] = [
       { feature: 'Health words', high: 'More frequent', low: 'Less frequent' },
     ],
   },
+
+  // === Category B: Dark Personality (Domains 6-8) ===
+  {
+    id: 'dark_triad_narcissism',
+    name: 'Narcissism',
+    category: 'dark_personality',
+    description: 'Reflects grandiosity, entitlement, and need for admiration. High scorers have inflated self-views and expect special treatment.',
+    psychometricSource: 'NPI (Narcissistic Personality Inventory)',
+    markers: ['Self-focus pronouns', 'Superiority language', 'Entitlement expressions', 'Status/prestige words'],
+    dataPoints: [
+      { feature: '1st person singular', high: 'More frequent', low: 'Less frequent' },
+      { feature: 'Superiority words', indicator: 'Best, superior, exceptional, special' },
+      { feature: 'Entitlement', indicator: 'Deserve, entitled, should have' },
+      { feature: 'Status references', indicator: 'Success, achievement, recognition' },
+    ],
+  },
+  {
+    id: 'dark_triad_machiavellianism',
+    name: 'Machiavellianism',
+    category: 'dark_personality',
+    description: 'Reflects strategic manipulation and cynical worldview. High scorers prioritize self-interest and use calculated tactics.',
+    psychometricSource: 'MACH-IV Scale',
+    markers: ['Strategic language', 'Manipulation cues', 'Cynicism markers', 'Self-interest focus'],
+    dataPoints: [
+      { feature: 'Strategic thinking', indicator: 'Plan, strategy, tactics, leverage' },
+      { feature: 'Manipulation', indicator: 'Persuade, influence, control, use' },
+      { feature: 'Cynicism', indicator: 'Distrust, ulterior motives, skeptical' },
+      { feature: 'Self-interest', indicator: 'Advantage, benefit me, my gain' },
+    ],
+  },
+  {
+    id: 'dark_triad_psychopathy',
+    name: 'Psychopathy',
+    category: 'dark_personality',
+    description: 'Reflects callousness, impulsivity, and lack of remorse. High scorers show reduced empathy and emotional detachment.',
+    psychometricSource: 'Levenson Self-Report Psychopathy Scale',
+    markers: ['Emotional coldness', 'Impulsivity markers', 'Low empathy language', 'Rule-breaking references'],
+    dataPoints: [
+      { feature: 'Emotional detachment', indicator: 'Doesn\'t matter, who cares, indifferent' },
+      { feature: 'Impulsivity', indicator: 'Now, immediately, can\'t wait, spontaneous' },
+      { feature: 'Low empathy', indicator: 'Absence of concern for others\' feelings' },
+      { feature: 'Rule violations', indicator: 'Rules are..., exceptions, don\'t apply' },
+    ],
+  },
+
+  // === Category C: Emotional/Social Intelligence (Domains 9-13) ===
+  {
+    id: 'emotional_empathy',
+    name: 'Empathy',
+    category: 'emotional',
+    description: 'Reflects ability to share and understand others\' emotional states. High scorers easily connect with others\' feelings.',
+    psychometricSource: 'Empathy Quotient (EQ) - Baron-Cohen',
+    markers: ['Perspective-taking', 'Emotional mirroring', 'Compassion language', 'Social sensitivity'],
+    dataPoints: [
+      { feature: 'Perspective words', indicator: 'Understand, feel for, imagine how' },
+      { feature: 'Compassion', indicator: 'Sorry for, sympathize, heart goes out' },
+      { feature: 'Emotional sharing', indicator: 'Feel the same, share your...' },
+      { feature: 'Other-focus', indicator: 'You must feel, they probably...' },
+    ],
+  },
+  {
+    id: 'emotional_intelligence',
+    name: 'Emotional Intelligence',
+    category: 'emotional',
+    description: 'Reflects ability to perceive, understand, manage, and use emotions effectively. Includes self-awareness, empathy, and social skills.',
+    psychometricSource: 'MSCEIT (Mayer-Salovey-Caruso)',
+    markers: ['Emotion word diversity', 'Emotion specificity', 'Social awareness', 'Empathy expressions', 'Emotion regulation'],
+    dataPoints: [
+      { feature: 'Self-awareness', indicator: 'Emotion vocabulary diversity, insight words' },
+      { feature: 'Self-regulation', indicator: 'Inhibition words, future-focused language' },
+      { feature: 'Motivation', indicator: 'Achievement words, drive words' },
+      { feature: 'Empathy', indicator: '2nd person pronouns, social process words' },
+      { feature: 'Social skills', indicator: 'Affiliation words, positive emotion, politeness' },
+    ],
+  },
+  {
+    id: 'attachment_style',
+    name: 'Attachment Style',
+    category: 'emotional',
+    description: 'Reflects patterns of relating to others based on early bonding experiences. Influences trust, intimacy, and relationship behaviors.',
+    psychometricSource: 'ECR-R (Experiences in Close Relationships)',
+    markers: ['Relationship vocabulary', 'Proximity-seeking', 'Trust/intimacy words', 'Social network refs'],
+    dataPoints: [
+      { feature: 'Secure', indicator: 'Balanced self/other, positive social, trust' },
+      { feature: 'Anxious', indicator: 'High 1st person, relationship worry' },
+      { feature: 'Avoidant', indicator: 'Low intimacy words, distancing' },
+      { feature: 'Fearful', indicator: 'Inconsistent, approach-avoidance' },
+    ],
+  },
+  {
+    id: 'love_languages',
+    name: 'Love Languages',
+    category: 'emotional',
+    description: 'Reflects preferred ways of expressing and receiving love. Based on five distinct love languages.',
+    psychometricSource: '5 Love Languages (Chapman)',
+    markers: ['Affirmation words', 'Time references', 'Service language', 'Touch words', 'Gift references'],
+    dataPoints: [
+      { feature: 'Words of Affirmation', indicator: 'Compliments, appreciation, verbal support' },
+      { feature: 'Quality Time', indicator: 'Together, attention, focus, presence' },
+      { feature: 'Acts of Service', indicator: 'Help, do for, take care of' },
+      { feature: 'Physical Touch', indicator: 'Hug, hold, touch, physical closeness' },
+      { feature: 'Receiving Gifts', indicator: 'Gift, present, surprise, thoughtful' },
+    ],
+  },
+  {
+    id: 'communication_style',
+    name: 'Communication Style',
+    category: 'behavioral',
+    description: 'Reflects patterns of verbal and written expression. Includes directness, formality, assertiveness, and expressiveness.',
+    psychometricSource: 'DISC Assessment',
+    markers: ['Directness level', 'Formality markers', 'Assertiveness', 'Listening cues'],
+    dataPoints: [
+      { feature: 'Dominant (D)', indicator: 'Direct, results-oriented, decisive' },
+      { feature: 'Influential (I)', indicator: 'Enthusiastic, collaborative, optimistic' },
+      { feature: 'Steady (S)', indicator: 'Patient, reliable, team-oriented' },
+      { feature: 'Conscientious (C)', indicator: 'Analytical, precise, systematic' },
+    ],
+  },
+
+  // === Category D: Decision Making & Motivation (Domains 14-20) ===
+  {
+    id: 'risk_tolerance',
+    name: 'Risk Tolerance',
+    category: 'behavioral',
+    description: 'Reflects willingness to accept uncertainty for potential gains. Varies across financial, physical, and social domains.',
+    psychometricSource: 'DOSPERT (Domain-Specific Risk-Taking)',
+    markers: ['Risk vocabulary', 'Uncertainty language', 'Caution vs boldness', 'Probability references'],
+    dataPoints: [
+      { feature: 'Risk-seeking', indicator: 'Chance, bet, gamble, opportunity' },
+      { feature: 'Risk-averse', indicator: 'Safe, certain, guaranteed, secure' },
+      { feature: 'Uncertainty tolerance', indicator: 'Maybe, could be, possible' },
+      { feature: 'Domain specificity', indicator: 'Financial vs physical vs social' },
+    ],
+  },
+  {
+    id: 'decision_style',
+    name: 'Decision Style',
+    category: 'behavioral',
+    description: 'Reflects how people approach choices and make decisions. Includes rational, intuitive, and social decision-making styles.',
+    psychometricSource: 'General Decision Making Style (GDMS)',
+    markers: ['Deliberation language', 'Intuition references', 'Risk vocabulary', 'Temporal orientation'],
+    dataPoints: [
+      { feature: 'Rational', indicator: 'Cause/effect, analytical, comparison' },
+      { feature: 'Intuitive', indicator: 'Feeling words, gut references' },
+      { feature: 'Dependent', indicator: 'Social reference, advice-seeking' },
+      { feature: 'Avoidant', indicator: 'Delay words, uncertainty, hedging' },
+      { feature: 'Spontaneous', indicator: 'Present focus, urgency' },
+    ],
+  },
+  {
+    id: 'time_orientation',
+    name: 'Time Orientation',
+    category: 'temporal',
+    description: 'Reflects how people mentally frame time and its influence on decisions. Includes past, present, and future orientations.',
+    psychometricSource: 'Zimbardo Time Perspective Inventory (ZTPI)',
+    markers: ['Temporal references', 'Verb tense usage', 'Planning vs spontaneity'],
+    dataPoints: [
+      { feature: 'Past-Negative', indicator: 'Regret, should have, if only' },
+      { feature: 'Past-Positive', indicator: 'Nostalgia, good times, memories' },
+      { feature: 'Present-Hedonistic', indicator: 'Now, enjoy, pleasure, YOLO' },
+      { feature: 'Present-Fatalistic', indicator: 'Fate, destiny, no control' },
+      { feature: 'Future', indicator: 'Will, plan, goal, going to' },
+    ],
+  },
+  {
+    id: 'achievement_motivation',
+    name: 'Achievement Motivation',
+    category: 'motivation',
+    description: 'Reflects drive to accomplish challenging goals and excel. High scorers are ambitious and goal-oriented.',
+    psychometricSource: 'nAch (Need for Achievement) - McClelland',
+    markers: ['Achievement words', 'Goal language', 'Success references', 'Competition markers'],
+    dataPoints: [
+      { feature: 'Goal-setting', indicator: 'Goal, objective, target, aim' },
+      { feature: 'Success drive', indicator: 'Achieve, accomplish, succeed, win' },
+      { feature: 'Challenge-seeking', indicator: 'Challenge, difficult, ambitious' },
+      { feature: 'Excellence focus', indicator: 'Best, excellent, outstanding, superior' },
+    ],
+  },
+  {
+    id: 'self_efficacy',
+    name: 'Self-Efficacy',
+    category: 'motivation',
+    description: 'Reflects belief in one\'s ability to succeed in specific situations. High scorers are confident in their capabilities.',
+    psychometricSource: 'General Self-Efficacy Scale (GSE)',
+    markers: ['Confidence language', 'Capability words', 'Can-do statements', 'Control references'],
+    dataPoints: [
+      { feature: 'Confidence', indicator: 'I can, I\'m able, I\'ll manage' },
+      { feature: 'Capability', indicator: 'Capable, competent, skilled, able' },
+      { feature: 'Control', indicator: 'Handle, manage, overcome, deal with' },
+      { feature: 'Persistence', indicator: 'Keep trying, won\'t give up, persist' },
+    ],
+  },
+  {
+    id: 'locus_of_control',
+    name: 'Locus of Control',
+    category: 'motivation',
+    description: 'Reflects beliefs about what controls outcomes in life. Internal = self, External = outside forces.',
+    psychometricSource: 'Rotter Internal-External Scale',
+    markers: ['Agency language', 'Control attributions', 'Fate/luck references', 'Responsibility markers'],
+    dataPoints: [
+      { feature: 'Internal', indicator: 'I control, my choice, I make it happen' },
+      { feature: 'External', indicator: 'Luck, fate, depends on others, chance' },
+      { feature: 'Agency', indicator: 'Decision, choose, determine, influence' },
+      { feature: 'Helplessness', indicator: 'Can\'t change, out of my hands, powerless' },
+    ],
+  },
+  {
+    id: 'growth_mindset',
+    name: 'Growth Mindset',
+    category: 'mindset',
+    description: 'Reflects beliefs about whether abilities are fixed or can be developed through effort. Influences learning and achievement.',
+    psychometricSource: 'Implicit Theories of Intelligence Scale (Dweck)',
+    markers: ['Effort attribution', 'Challenge response', 'Failure interpretation', 'Learning orientation'],
+    dataPoints: [
+      { feature: 'Growth', indicator: 'Effort, practice, learn, improve, yet' },
+      { feature: 'Fixed', indicator: 'Talent, natural, born with, can\'t' },
+      { feature: 'Failure talk', growth: 'Learning opportunity', fixed: 'Defining, permanent' },
+      { feature: 'Challenge response', growth: 'Embrace, try', fixed: 'Avoid, defensive' },
+    ],
+  },
+
+  // === Category E: Values & Wellbeing (Domains 21-26) ===
+  {
+    id: 'personal_values',
+    name: 'Personal Values',
+    category: 'values',
+    description: 'Reflects core personal values and what drives behavior. Based on universal human values that guide decisions and priorities.',
+    psychometricSource: 'Schwartz PVQ (Portrait Values Questionnaire)',
+    markers: ['Value-laden vocabulary', 'Priority expressions', 'Goal-oriented language', 'Cultural references'],
+    dataPoints: [
+      { feature: 'Self-Direction', indicator: 'Autonomy, creative vocabulary, independence' },
+      { feature: 'Achievement', indicator: 'Success words, competence, ambition' },
+      { feature: 'Benevolence', indicator: 'Helping words, care, loyalty' },
+      { feature: 'Universalism', indicator: 'Equality, justice, environment' },
+      { feature: 'Security', indicator: 'Safety words, stability, order' },
+    ],
+  },
+  {
+    id: 'interests',
+    name: 'Interests (RIASEC)',
+    category: 'values',
+    description: 'Reflects vocational interests and preferred activities. Based on six interest types that guide career choices.',
+    psychometricSource: 'Holland RIASEC / Strong Interest Inventory',
+    markers: ['Activity preferences', 'Career language', 'Domain vocabulary', 'Work environment refs'],
+    dataPoints: [
+      { feature: 'Realistic', indicator: 'Build, fix, hands-on, practical, tools' },
+      { feature: 'Investigative', indicator: 'Research, analyze, study, discover' },
+      { feature: 'Artistic', indicator: 'Create, design, express, imagine' },
+      { feature: 'Social', indicator: 'Help, teach, counsel, support' },
+      { feature: 'Enterprising', indicator: 'Lead, persuade, sell, manage' },
+      { feature: 'Conventional', indicator: 'Organize, detail, accurate, systematic' },
+    ],
+  },
+  {
+    id: 'life_satisfaction',
+    name: 'Life Satisfaction',
+    category: 'wellbeing',
+    description: 'Reflects overall evaluation of one\'s life. High scorers are generally content with their life circumstances.',
+    psychometricSource: 'SWLS (Satisfaction with Life Scale)',
+    markers: ['Satisfaction language', 'Life evaluation', 'Contentment words', 'Wellbeing references'],
+    dataPoints: [
+      { feature: 'Overall satisfaction', indicator: 'Happy, satisfied, content, fulfilled' },
+      { feature: 'Life evaluation', indicator: 'Good life, ideal, close to perfect' },
+      { feature: 'Achievement sense', indicator: 'Accomplished, achieved, got what I wanted' },
+      { feature: 'Future outlook', indicator: 'Optimistic, hopeful, looking forward' },
+    ],
+  },
+  {
+    id: 'stress_coping',
+    name: 'Stress Coping',
+    category: 'wellbeing',
+    description: 'Reflects strategies used to manage stress and adversity. Includes problem-focused and emotion-focused approaches.',
+    psychometricSource: 'Brief COPE Inventory',
+    markers: ['Coping strategy language', 'Stress response', 'Recovery language', 'Support-seeking'],
+    dataPoints: [
+      { feature: 'Problem-focused', indicator: 'Action words, plan, solve, fix' },
+      { feature: 'Emotion-focused', indicator: 'Feel, process, accept, support' },
+      { feature: 'Avoidant', indicator: 'Avoid, ignore, distract, deny' },
+      { feature: 'Support-seeking', indicator: 'Help, talk to, reach out' },
+    ],
+  },
+  {
+    id: 'social_support',
+    name: 'Social Support',
+    category: 'wellbeing',
+    description: 'Reflects perceived availability of support from others. Includes family, friends, and significant others.',
+    psychometricSource: 'MSPSS (Multidimensional Scale of Perceived Social Support)',
+    markers: ['Support references', 'Network language', 'Help availability', 'Relationship mentions'],
+    dataPoints: [
+      { feature: 'Family support', indicator: 'Family helps, parents, siblings support' },
+      { feature: 'Friend support', indicator: 'Friends there, can count on friends' },
+      { feature: 'Significant other', indicator: 'Partner, spouse, relationship support' },
+      { feature: 'General support', indicator: 'People care, someone to turn to' },
+    ],
+  },
+  {
+    id: 'authenticity',
+    name: 'Authenticity',
+    category: 'wellbeing',
+    description: 'Reflects alignment between inner experience and outward expression. High scorers are genuine and true to themselves.',
+    psychometricSource: 'Authenticity Scale (Wood et al.)',
+    markers: ['Self-expression', 'Genuineness language', 'Congruence markers', 'Identity references'],
+    dataPoints: [
+      { feature: 'Self-alienation', low: 'Know myself, understand who I am', high: 'Don\'t know who I am' },
+      { feature: 'Authentic living', indicator: 'True to self, genuine, real, honest' },
+      { feature: 'External influence', low: 'Own decisions, my choice', high: 'Others expect, should be' },
+      { feature: 'Congruence', indicator: 'Feel aligned, match, consistent' },
+    ],
+  },
+
+  // === Category F: Cognitive/Learning (Domains 27-32) ===
   {
     id: 'cognitive_abilities',
     name: 'Cognitive Abilities',
@@ -192,71 +506,11 @@ const DOMAIN_REFERENCE: DomainReference[] = [
     ],
   },
   {
-    id: 'emotional_intelligence',
-    name: 'Emotional Intelligence',
-    category: 'emotional',
-    description: 'Reflects ability to perceive, understand, manage, and use emotions effectively. Includes self-awareness, empathy, and social skills.',
-    psychometricSource: 'EQ-i 2.0 (Bar-On) / MSCEIT (Mayer-Salovey)',
-    markers: ['Emotion word diversity', 'Emotion specificity', 'Social awareness', 'Empathy expressions', 'Emotion regulation'],
-    dataPoints: [
-      { feature: 'Self-awareness', indicator: 'Emotion vocabulary diversity, insight words' },
-      { feature: 'Self-regulation', indicator: 'Inhibition words, future-focused language' },
-      { feature: 'Motivation', indicator: 'Achievement words, drive words' },
-      { feature: 'Empathy', indicator: '2nd person pronouns, social process words' },
-      { feature: 'Social skills', indicator: 'Affiliation words, positive emotion, politeness' },
-    ],
-  },
-  {
-    id: 'values_motivations',
-    name: 'Values & Motivations',
-    category: 'values',
-    description: 'Reflects core personal values and what drives behavior. Based on universal human values that guide decisions and priorities.',
-    psychometricSource: 'Schwartz Values Survey (SVS)',
-    markers: ['Value-laden vocabulary', 'Priority expressions', 'Goal-oriented language', 'Cultural references'],
-    dataPoints: [
-      { feature: 'Self-Direction', indicator: 'Autonomy, creative vocabulary, independence' },
-      { feature: 'Achievement', indicator: 'Success words, competence, ambition' },
-      { feature: 'Benevolence', indicator: 'Helping words, care, loyalty' },
-      { feature: 'Universalism', indicator: 'Equality, justice, environment' },
-      { feature: 'Security', indicator: 'Safety words, stability, order' },
-    ],
-  },
-  {
-    id: 'moral_reasoning',
-    name: 'Moral Reasoning',
-    category: 'values',
-    description: 'Reflects how people think about ethical issues and make moral judgments. Based on evolutionary moral foundations.',
-    psychometricSource: 'Moral Foundations Theory (Haidt & Graham)',
-    markers: ['Moral vocabulary', 'Justice vs care orientation', 'Principled reasoning', 'Moral foundations'],
-    dataPoints: [
-      { feature: 'Care/Harm', indicator: 'Suffering, kindness, compassion' },
-      { feature: 'Fairness/Cheating', indicator: 'Justice, rights, equality' },
-      { feature: 'Loyalty/Betrayal', indicator: 'Group words, patriotism' },
-      { feature: 'Authority/Subversion', indicator: 'Respect, tradition, obedience' },
-      { feature: 'Sanctity/Degradation', indicator: 'Purity, sacred, disgust' },
-    ],
-  },
-  {
-    id: 'decision_making',
-    name: 'Decision Making',
-    category: 'behavioral',
-    description: 'Reflects how people approach choices and make decisions. Includes rational, intuitive, and social decision-making styles.',
-    psychometricSource: 'General Decision Making Style (GDMS)',
-    markers: ['Deliberation language', 'Intuition references', 'Risk vocabulary', 'Temporal orientation'],
-    dataPoints: [
-      { feature: 'Rational', indicator: 'Cause/effect, analytical, comparison' },
-      { feature: 'Intuitive', indicator: 'Feeling words, gut references' },
-      { feature: 'Dependent', indicator: 'Social reference, advice-seeking' },
-      { feature: 'Avoidant', indicator: 'Delay words, uncertainty, hedging' },
-      { feature: 'Spontaneous', indicator: 'Present focus, urgency' },
-    ],
-  },
-  {
     id: 'creativity',
     name: 'Creativity',
     category: 'cognitive',
     description: 'Reflects capacity for novel idea generation, divergent thinking, and making unusual connections. Includes fluency, flexibility, and originality.',
-    psychometricSource: 'Torrance Tests of Creative Thinking (TTCT)',
+    psychometricSource: 'CAQ (Creative Achievement Questionnaire) / Divergent Thinking Tests',
     markers: ['Remote associations', 'Metaphor usage', 'Novelty language', 'Divergent thinking'],
     dataPoints: [
       { feature: 'Semantic distance', indicator: 'Conceptual distance between words' },
@@ -264,20 +518,6 @@ const DOMAIN_REFERENCE: DomainReference[] = [
       { feature: 'Metaphor density', indicator: 'Figurative to literal ratio' },
       { feature: 'Question diversity', indicator: 'Variety in question types' },
       { feature: 'Idea fluency', indicator: 'Distinct concepts per response' },
-    ],
-  },
-  {
-    id: 'attachment_style',
-    name: 'Attachment Style',
-    category: 'emotional',
-    description: 'Reflects patterns of relating to others based on early bonding experiences. Influences trust, intimacy, and relationship behaviors.',
-    psychometricSource: 'ECR-R (Experiences in Close Relationships)',
-    markers: ['Relationship vocabulary', 'Proximity-seeking', 'Trust/intimacy words', 'Social network refs'],
-    dataPoints: [
-      { feature: 'Secure', indicator: 'Balanced self/other, positive social, trust' },
-      { feature: 'Anxious', indicator: 'High 1st person, relationship worry' },
-      { feature: 'Avoidant', indicator: 'Low intimacy words, distancing' },
-      { feature: 'Fearful', indicator: 'Inconsistent, approach-avoidance' },
     ],
   },
   {
@@ -327,7 +567,7 @@ const DOMAIN_REFERENCE: DomainReference[] = [
     name: 'Executive Functions',
     category: 'cognitive',
     description: 'Reflects higher-order cognitive processes for goal-directed behavior. Includes inhibition, cognitive flexibility, and working memory.',
-    psychometricSource: 'BRIEF (Behavior Rating Inventory of Executive Function)',
+    psychometricSource: 'BRIEF (Behavior Rating Inventory of Executive Function) / Miyake Model',
     markers: ['Inhibition language', 'Cognitive flexibility', 'Working memory', 'Planning language'],
     dataPoints: [
       { feature: 'Inhibition', indicator: 'Stop, resist, control, restrain' },
@@ -336,26 +576,14 @@ const DOMAIN_REFERENCE: DomainReference[] = [
       { feature: 'Planning', indicator: 'Plan, organize, schedule, steps' },
     ],
   },
-  {
-    id: 'communication_styles',
-    name: 'Communication Styles',
-    category: 'behavioral',
-    description: 'Reflects patterns of verbal and written expression. Includes directness, formality, assertiveness, and expressiveness.',
-    psychometricSource: 'Communication Style Inventory (CSI)',
-    markers: ['Directness level', 'Formality markers', 'Assertiveness', 'Listening cues'],
-    dataPoints: [
-      { feature: 'Directness', high: 'Imperative, clear statements', low: 'Hedging, indirect' },
-      { feature: 'Formality', high: 'Formal vocabulary, full sentences', low: 'Casual, abbreviations' },
-      { feature: 'Assertiveness', high: 'Certainty, commands', low: 'Tentative, deferent' },
-      { feature: 'Expressiveness', high: 'Emotion words, exclamations', low: 'Neutral, restrained' },
-    ],
-  },
+
+  // === Category G: Social/Cultural/Values (Domains 33-37) ===
   {
     id: 'social_cognition',
     name: 'Social Cognition',
     category: 'social',
     description: 'Reflects ability to understand and predict others\' mental states and behaviors. Includes theory of mind and perspective-taking.',
-    psychometricSource: 'Reading the Mind in the Eyes Test (Baron-Cohen)',
+    psychometricSource: 'RMET (Reading the Mind in the Eyes Test) / Theory of Mind Tasks',
     markers: ['Theory of mind', 'Perspective-taking', 'Social inference', 'Attribution patterns'],
     dataPoints: [
       { feature: 'Theory of Mind', indicator: 'They think..., mental state verbs' },
@@ -365,39 +593,11 @@ const DOMAIN_REFERENCE: DomainReference[] = [
     ],
   },
   {
-    id: 'resilience_coping',
-    name: 'Resilience & Coping',
-    category: 'emotional',
-    description: 'Reflects ability to adapt to stress and adversity. Includes coping strategies and psychological resilience.',
-    psychometricSource: 'Brief COPE / Connor-Davidson Resilience Scale',
-    markers: ['Coping strategy language', 'Stress response', 'Recovery language', 'Support-seeking'],
-    dataPoints: [
-      { feature: 'Problem-focused', indicator: 'Action words, plan, solve, fix' },
-      { feature: 'Emotion-focused', indicator: 'Feel, process, accept, support' },
-      { feature: 'Avoidant', indicator: 'Avoid, ignore, distract, deny' },
-      { feature: 'Support-seeking', indicator: 'Help, talk to, reach out' },
-    ],
-  },
-  {
-    id: 'mindset_growth_fixed',
-    name: 'Growth vs Fixed Mindset',
-    category: 'mindset',
-    description: 'Reflects beliefs about whether abilities are fixed or can be developed through effort. Influences learning and achievement.',
-    psychometricSource: 'Implicit Theories of Intelligence Scale (Dweck)',
-    markers: ['Effort attribution', 'Challenge response', 'Failure interpretation', 'Learning orientation'],
-    dataPoints: [
-      { feature: 'Growth', indicator: 'Effort, practice, learn, improve, yet' },
-      { feature: 'Fixed', indicator: 'Talent, natural, born with, can\'t' },
-      { feature: 'Failure talk', growth: 'Learning opportunity', fixed: 'Defining, permanent' },
-      { feature: 'Challenge response', growth: 'Embrace, try', fixed: 'Avoid, defensive' },
-    ],
-  },
-  {
     id: 'political_ideology',
     name: 'Political Ideology',
     category: 'values',
     description: 'Reflects political orientation along liberal-conservative dimensions. Based on moral foundations and worldview differences.',
-    psychometricSource: 'Moral Foundations Questionnaire + Political Orientation',
+    psychometricSource: 'MFQ (Moral Foundations Questionnaire) / Political Compass',
     markers: ['Authority orientation', 'In-group/out-group', 'Equality framing', 'Moral foundation emphasis'],
     dataPoints: [
       { feature: 'Authority', conservative: 'Respect, tradition, order', liberal: 'Question, challenge, change' },
@@ -421,25 +621,43 @@ const DOMAIN_REFERENCE: DomainReference[] = [
     ],
   },
   {
+    id: 'moral_reasoning',
+    name: 'Moral Reasoning',
+    category: 'values',
+    description: 'Reflects how people think about ethical issues and make moral judgments. Based on evolutionary moral foundations.',
+    psychometricSource: 'DIT-2 (Defining Issues Test) / MFQ',
+    markers: ['Moral vocabulary', 'Justice vs care orientation', 'Principled reasoning', 'Moral foundations'],
+    dataPoints: [
+      { feature: 'Care/Harm', indicator: 'Suffering, kindness, compassion' },
+      { feature: 'Fairness/Cheating', indicator: 'Justice, rights, equality' },
+      { feature: 'Loyalty/Betrayal', indicator: 'Group words, patriotism' },
+      { feature: 'Authority/Subversion', indicator: 'Respect, tradition, obedience' },
+      { feature: 'Sanctity/Degradation', indicator: 'Purity, sacred, disgust' },
+    ],
+  },
+  {
     id: 'work_career_style',
     name: 'Work & Career Style',
     category: 'behavioral',
     description: 'Reflects orientation toward work and career. Includes job vs career vs calling orientations and work values.',
-    psychometricSource: 'Work Orientation Scale / Career Values Survey',
+    psychometricSource: 'Career Anchors (Schein)',
     markers: ['Work orientation', 'Career values', 'Professional communication', 'Achievement motivation'],
     dataPoints: [
-      { feature: 'Career-focused', indicator: 'Advancement, success, achievement' },
-      { feature: 'Job-focused', indicator: 'Security, stability, balance' },
-      { feature: 'Calling-focused', indicator: 'Purpose, meaning, impact' },
-      { feature: 'Work style', indicator: 'Independent vs collaborative' },
+      { feature: 'Technical/Functional', indicator: 'Expertise, mastery, specialized' },
+      { feature: 'Managerial', indicator: 'Lead, manage, responsibility, authority' },
+      { feature: 'Autonomy', indicator: 'Independence, freedom, my way' },
+      { feature: 'Security/Stability', indicator: 'Stable, secure, predictable' },
+      { feature: 'Service/Dedication', indicator: 'Help, contribute, make difference' },
     ],
   },
+
+  // === Category H: Sensory/Aesthetic (Domains 38-39) ===
   {
     id: 'sensory_processing',
     name: 'Sensory Processing',
     category: 'sensory',
     description: 'Reflects how sensory information is processed and integrated. Includes sensory sensitivity and processing patterns.',
-    psychometricSource: 'Sensory Processing Sensitivity Scale (HSP)',
+    psychometricSource: 'HSP Scale (Highly Sensitive Person Scale)',
     markers: ['Sensory vocabulary', 'Sensitivity indicators', 'Stimulation seeking/avoiding'],
     dataPoints: [
       { feature: 'Visual', indicator: 'See, look, bright, colorful, picture' },
@@ -449,26 +667,11 @@ const DOMAIN_REFERENCE: DomainReference[] = [
     ],
   },
   {
-    id: 'time_perspective',
-    name: 'Time Perspective',
-    category: 'temporal',
-    description: 'Reflects how people mentally frame time and its influence on decisions. Includes past, present, and future orientations.',
-    psychometricSource: 'Zimbardo Time Perspective Inventory (ZTPI)',
-    markers: ['Temporal references', 'Verb tense usage', 'Planning vs spontaneity'],
-    dataPoints: [
-      { feature: 'Past-Negative', indicator: 'Regret, should have, if only' },
-      { feature: 'Past-Positive', indicator: 'Nostalgia, good times, memories' },
-      { feature: 'Present-Hedonistic', indicator: 'Now, enjoy, pleasure, YOLO' },
-      { feature: 'Present-Fatalistic', indicator: 'Fate, destiny, no control' },
-      { feature: 'Future', indicator: 'Will, plan, goal, going to' },
-    ],
-  },
-  {
     id: 'aesthetic_preferences',
     name: 'Aesthetic Preferences',
     category: 'aesthetic',
     description: 'Reflects preferences for beauty, art, and design. Includes complexity, novelty, and emotional resonance in aesthetic judgments.',
-    psychometricSource: 'Aesthetic Preference Scales / AESTHEMOS',
+    psychometricSource: 'Aesthetic Fluency Scale / AESTHEMOS',
     markers: ['Beauty vocabulary', 'Style preferences', 'Artistic references'],
     dataPoints: [
       { feature: 'Complexity preference', indicator: 'Simple vs intricate, minimal vs elaborate' },
@@ -481,13 +684,16 @@ const DOMAIN_REFERENCE: DomainReference[] = [
 
 const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   personality: { bg: 'bg-violet-50', text: 'text-violet-700', border: 'border-violet-200' },
+  dark_personality: { bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' },
   cognitive: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
   emotional: { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200' },
   values: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
   behavioral: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
   social: { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200' },
   mindset: { bg: 'bg-lime-50', text: 'text-lime-700', border: 'border-lime-200' },
+  motivation: { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200' },
   temporal: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
+  wellbeing: { bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-200' },
   sensory: { bg: 'bg-pink-50', text: 'text-pink-700', border: 'border-pink-200' },
   aesthetic: { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200' },
 }
@@ -541,33 +747,54 @@ type GraphStoreKey = typeof GRAPH_STORES[number]['key']
 type SqlStoreKey = typeof SQL_STORES[number]['key']
 type DataStoreKey = DexieStoreKey | VectorStoreKey | GraphStoreKey | SqlStoreKey
 
-// Domain display configuration
+// Domain display configuration - All 39 domains matching PSYCHOLOGICAL_DOMAINS
 const DOMAIN_LABELS: Record<string, string> = {
+  // Category A: Core Personality - Big Five (5)
   big_five_openness: 'Openness',
   big_five_conscientiousness: 'Conscientiousness',
   big_five_extraversion: 'Extraversion',
   big_five_agreeableness: 'Agreeableness',
   big_five_neuroticism: 'Neuroticism',
-  cognitive_abilities: 'Cognitive Abilities',
+  // Category B: Dark Personality (3)
+  dark_triad_narcissism: 'Narcissism',
+  dark_triad_machiavellianism: 'Machiavellianism',
+  dark_triad_psychopathy: 'Psychopathy',
+  // Category C: Emotional/Social Intelligence (5)
+  emotional_empathy: 'Empathy',
   emotional_intelligence: 'Emotional Intelligence',
-  values_motivations: 'Values & Motivations',
-  moral_reasoning: 'Moral Reasoning',
-  decision_making: 'Decision Making',
-  creativity: 'Creativity',
   attachment_style: 'Attachment Style',
+  love_languages: 'Love Languages',
+  communication_style: 'Communication Style',
+  // Category D: Decision Making & Motivation (7)
+  risk_tolerance: 'Risk Tolerance',
+  decision_style: 'Decision Style',
+  time_orientation: 'Time Orientation',
+  achievement_motivation: 'Achievement Motivation',
+  self_efficacy: 'Self-Efficacy',
+  locus_of_control: 'Locus of Control',
+  growth_mindset: 'Growth Mindset',
+  // Category E: Values & Wellbeing (6)
+  personal_values: 'Personal Values',
+  interests: 'Interests (RIASEC)',
+  life_satisfaction: 'Life Satisfaction',
+  stress_coping: 'Stress Coping',
+  social_support: 'Social Support',
+  authenticity: 'Authenticity',
+  // Category F: Cognitive/Learning (6)
+  cognitive_abilities: 'Cognitive Abilities',
+  creativity: 'Creativity',
   learning_styles: 'Learning Styles',
   information_processing: 'Info Processing',
   metacognition: 'Metacognition',
   executive_functions: 'Executive Functions',
-  communication_styles: 'Communication',
+  // Category G: Social/Cultural/Values (5)
   social_cognition: 'Social Cognition',
-  resilience_coping: 'Resilience & Coping',
-  mindset_growth_fixed: 'Growth Mindset',
-  political_ideology: 'Political Orientation',
+  political_ideology: 'Political Ideology',
   cultural_values: 'Cultural Values',
-  work_career_style: 'Work Style',
+  moral_reasoning: 'Moral Reasoning',
+  work_career_style: 'Work & Career Style',
+  // Category H: Sensory/Aesthetic (2)
   sensory_processing: 'Sensory Processing',
-  time_perspective: 'Time Perspective',
   aesthetic_preferences: 'Aesthetic Preferences',
 }
 
@@ -624,7 +851,13 @@ export default function ProfileDashboard() {
     title: string
     data: unknown[] | null
     loading: boolean
-  }>({ isOpen: false, title: '', data: null, loading: false })
+    storeKey: DataStoreKey | null
+    viewMode: 'table' | 'json' | 'graph'
+  }>({ isOpen: false, title: '', data: null, loading: false, storeKey: null, viewMode: 'table' })
+
+  // Graph visualization state for interactive hover
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null)
+  const [hoveredEdge, setHoveredEdge] = useState<{ source: string; target: string; label: string } | null>(null)
 
   // Expanded domain state for viewing data point details
   const [expandedDomain, setExpandedDomain] = useState<string | null>(null)
@@ -632,6 +865,11 @@ export default function ProfileDashboard() {
     isOpen: boolean
     domainId: string
     domainName: string
+    domainDescription: string
+    finalScore: number
+    finalConfidence: number
+    signals: HybridSignalScore[]
+    // Legacy data points (kept for backward compatibility with old UI)
     dataPoints: Array<{
       feature: string
       indicator?: string
@@ -703,7 +941,9 @@ export default function ProfileDashboard() {
   }
 
   async function openDataInspector(storeKey: DataStoreKey, label: string) {
-    setInspectorModal({ isOpen: true, title: label, data: null, loading: true })
+    // Default to 'graph' view for graph stores, 'table' for others
+    const defaultViewMode = (storeKey === 'graphTriples' || storeKey === 'graphByCategory') ? 'graph' : 'table'
+    setInspectorModal({ isOpen: true, title: label, data: null, loading: true, storeKey, viewMode: defaultViewMode })
 
     try {
       let data: unknown[]
@@ -782,11 +1022,360 @@ export default function ProfileDashboard() {
         default:
           data = []
       }
-      setInspectorModal({ isOpen: true, title: label, data, loading: false })
+      const viewMode = (storeKey === 'graphTriples' || storeKey === 'graphByCategory') ? 'graph' : 'table'
+      setInspectorModal({ isOpen: true, title: label, data, loading: false, storeKey, viewMode })
     } catch (error) {
       console.error('Failed to load data:', error)
-      setInspectorModal({ isOpen: true, title: label, data: [], loading: false })
+      setInspectorModal({ isOpen: true, title: label, data: [], loading: false, storeKey, viewMode: 'table' })
     }
+  }
+
+  // Helper function to render table view based on store type
+  function renderDataTable(data: unknown[], storeKey: DataStoreKey | null) {
+    if (!data || data.length === 0) return null
+
+    // Define columns for each store type
+    const getColumnsForStore = (key: DataStoreKey | null): { key: string; label: string; render?: (v: unknown, row: Record<string, unknown>) => React.ReactNode }[] => {
+      switch (key) {
+        case 'messages':
+          return [
+            { key: 'id', label: 'ID' },
+            { key: 'role', label: 'Role', render: (v) => <span className={`px-2 py-0.5 rounded text-xs ${v === 'user' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>{String(v)}</span> },
+            { key: 'content', label: 'Content', render: (v) => <span className="truncate max-w-xs block">{String(v).slice(0, 100)}{String(v).length > 100 ? '...' : ''}</span> },
+            { key: 'timestamp', label: 'Timestamp', render: (v) => new Date(v as string).toLocaleString() },
+            { key: 'sessionId', label: 'Session' },
+          ]
+        case 'linguisticAnalyses':
+          return [
+            { key: 'id', label: 'ID' },
+            { key: 'messageId', label: 'Msg ID' },
+            { key: 'metrics', label: 'Word Count', render: (v) => String((v as Record<string, unknown>)?.wordCount ?? '-') },
+            { key: 'metrics', label: 'Sentences', render: (v) => String((v as Record<string, unknown>)?.sentenceCount ?? '-') },
+            { key: 'metrics', label: 'Vocab Richness', render: (v) => { const val = (v as Record<string, unknown>)?.vocabularyRichness as number; return val != null ? val.toFixed(2) : '-' } },
+            { key: 'timestamp', label: 'Timestamp', render: (v) => new Date(v as string).toLocaleString() },
+          ]
+        case 'personalityTraits':
+          return [
+            { key: 'trait', label: 'Trait', render: (v) => <span className="font-medium capitalize">{String(v).replace(/_/g, ' ')}</span> },
+            { key: 'score', label: 'Score', render: (v) => <span className="font-mono">{(v as number).toFixed(1)}</span> },
+            { key: 'confidence', label: 'Confidence', render: (v) => `${((v as number) * 100).toFixed(0)}%` },
+            { key: 'sampleSize', label: 'Samples' },
+            { key: 'lastUpdated', label: 'Updated', render: (v) => new Date(v as string).toLocaleDateString() },
+          ]
+        case 'activityLogs':
+          return [
+            { key: 'type', label: 'Type', render: (v) => <span className={`px-2 py-0.5 rounded text-xs ${v === 'message' ? 'bg-blue-100 text-blue-700' : v === 'analysis' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700'}`}>{String(v)}</span> },
+            { key: 'description', label: 'Description' },
+            { key: 'timestamp', label: 'Time', render: (v) => new Date(v as string).toLocaleString() },
+          ]
+        case 'sessions':
+          return [
+            { key: 'id', label: 'Session ID', render: (v) => <span className="font-mono text-xs">{String(v).slice(0, 12)}...</span> },
+            { key: 'startedAt', label: 'Started', render: (v) => new Date(v as string).toLocaleString() },
+            { key: 'endedAt', label: 'Ended', render: (v) => v ? new Date(v as string).toLocaleString() : <span className="text-green-600">Active</span> },
+            { key: 'messageCount', label: 'Messages' },
+            { key: 'analysisComplete', label: 'Analyzed', render: (v) => v ? <span className="text-green-600">Yes</span> : <span className="text-gray-400">No</span> },
+          ]
+        case 'userProfile':
+          return [
+            { key: 'id', label: 'ID' },
+            { key: 'totalMessages', label: 'Messages' },
+            { key: 'totalWords', label: 'Words' },
+            { key: 'averageSessionLength', label: 'Avg Session' },
+            { key: 'communicationStyle', label: 'Style' },
+            { key: 'createdAt', label: 'Created', render: (v) => new Date(v as string).toLocaleDateString() },
+            { key: 'updatedAt', label: 'Updated', render: (v) => new Date(v as string).toLocaleDateString() },
+          ]
+        case 'vectorEmbeddings':
+        case 'vectorTopics':
+          return [
+            { key: 'id', label: 'ID', render: (v) => String(v).slice(0, 12) + '...' },
+            { key: 'type', label: 'Type', render: (v) => <span className={`px-2 py-0.5 rounded text-xs ${v === 'message' ? 'bg-blue-100 text-blue-700' : v === 'topic' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>{String(v)}</span> },
+            { key: 'text', label: 'Text', render: (v) => <span className="truncate max-w-xs block">{String(v || '').slice(0, 80)}{(v && String(v).length > 80) ? '...' : ''}</span> },
+            { key: 'embedding', label: 'Dimensions', render: (v) => `${(v as number[])?.length || 0}D` },
+          ]
+        case 'graphTriples':
+          return [
+            { key: 'subject', label: 'Subject', render: (v) => <span className="font-mono text-xs bg-blue-50 px-1 rounded">{String(v).slice(0, 20)}</span> },
+            { key: 'predicate', label: 'Predicate', render: (v) => <span className="font-medium text-purple-700">{String(v).replace(/_/g, ' ')}</span> },
+            { key: 'object', label: 'Object', render: (v) => <span className="font-mono text-xs bg-green-50 px-1 rounded">{String(v).slice(0, 20)}</span> },
+            { key: 'metadata', label: 'Meta', render: (v) => v ? <span className="text-xs text-gray-500">{JSON.stringify(v).slice(0, 30)}</span> : '-' },
+          ]
+        case 'graphByCategory':
+          return [
+            { key: 'predicate', label: 'Predicate Type', render: (v) => <span className="font-medium text-purple-700">{String(v).replace(/_/g, ' ')}</span> },
+            { key: 'count', label: 'Count', render: (v) => <span className="font-mono">{String(v)}</span> },
+            { key: 'triples', label: 'Sample', render: (v) => <span className="text-xs text-gray-500">{(v as Triple[])?.length || 0} triples shown</span> },
+          ]
+        case 'sqlDomainScores':
+          return [
+            { key: 'domain_id', label: 'Domain', render: (v) => DOMAIN_LABELS[String(v)] || String(v) },
+            { key: 'score', label: 'Score', render: (v) => <span className="font-mono">{(v as number).toFixed(2)}</span> },
+            { key: 'confidence', label: 'Confidence', render: (v) => `${((v as number) * 100).toFixed(0)}%` },
+            { key: 'sample_count', label: 'Samples' },
+            { key: 'updated_at', label: 'Updated', render: (v) => new Date(v as string).toLocaleDateString() },
+          ]
+        case 'sqlFeatureCounts':
+          return [
+            { key: 'domain_id', label: 'Domain', render: (v) => DOMAIN_LABELS[String(v)] || String(v) },
+            { key: 'feature_name', label: 'Feature' },
+            { key: 'count', label: 'Count' },
+            { key: 'last_seen', label: 'Last Seen', render: (v) => new Date(v as string).toLocaleDateString() },
+          ]
+        case 'sqlHistory':
+          return [
+            { key: 'domain_id', label: 'Domain', render: (v) => DOMAIN_LABELS[String(v)] || String(v) },
+            { key: 'score', label: 'Score', render: (v) => <span className="font-mono">{(v as number).toFixed(2)}</span> },
+            { key: 'confidence', label: 'Confidence', render: (v) => `${((v as number) * 100).toFixed(0)}%` },
+            { key: 'recorded_at', label: 'Recorded', render: (v) => new Date(v as string).toLocaleString() },
+          ]
+        case 'sqlMetrics':
+          return [
+            { key: 'metric_name', label: 'Metric' },
+            { key: 'value', label: 'Value', render: (v) => <span className="font-mono">{typeof v === 'number' ? v.toFixed(2) : String(v)}</span> },
+            { key: 'updated_at', label: 'Updated', render: (v) => new Date(v as string).toLocaleString() },
+          ]
+        default:
+          // Generic columns based on first item
+          const firstItem = data[0] as Record<string, unknown>
+          return Object.keys(firstItem).slice(0, 6).map(k => ({ key: k, label: k.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ') }))
+      }
+    }
+
+    const columns = getColumnsForStore(storeKey)
+
+    return (
+      <table className="min-w-full divide-y divide-gray-200 text-sm">
+        <thead className="bg-gray-50">
+          <tr>
+            {columns.map((col, idx) => (
+              <th key={idx} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                {col.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="bg-white divide-y divide-gray-200">
+          {data.slice(0, 100).map((item, rowIdx) => {
+            const row = item as Record<string, unknown>
+            return (
+              <tr key={rowIdx} className="hover:bg-gray-50">
+                {columns.map((col, colIdx) => (
+                  <td key={colIdx} className="px-4 py-3 whitespace-nowrap text-gray-700">
+                    {col.render ? col.render(row[col.key], row) : String(row[col.key] ?? '-')}
+                  </td>
+                ))}
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    )
+  }
+
+  // Helper function to render interactive graph visualization
+  function renderGraphVisualization(triples: Triple[]) {
+    if (!triples || triples.length === 0) {
+      return (
+        <div className="text-center py-12 text-gray-500">
+          <Network className="w-12 h-12 mx-auto mb-2 opacity-30" />
+          <p>No graph data to visualize</p>
+        </div>
+      )
+    }
+
+    // Extract unique nodes from triples
+    const nodeMap = new Map<string, { id: string; type: 'subject' | 'object'; connections: number }>()
+    const edges: Array<{ source: string; target: string; label: string; metadata?: Record<string, unknown> }> = []
+
+    triples.forEach(triple => {
+      // Add subject node
+      if (!nodeMap.has(triple.subject)) {
+        nodeMap.set(triple.subject, { id: triple.subject, type: 'subject', connections: 0 })
+      }
+      nodeMap.get(triple.subject)!.connections++
+
+      // Add object node
+      if (!nodeMap.has(triple.object)) {
+        nodeMap.set(triple.object, { id: triple.object, type: 'object', connections: 0 })
+      }
+      nodeMap.get(triple.object)!.connections++
+
+      // Add edge
+      edges.push({
+        source: triple.subject,
+        target: triple.object,
+        label: triple.predicate,
+        metadata: triple.metadata
+      })
+    })
+
+    const nodes = Array.from(nodeMap.values())
+
+    // Simple force-directed layout calculation
+    const width = 800
+    const height = 500
+    const centerX = width / 2
+    const centerY = height / 2
+
+    // Position nodes in a circle with some randomness based on connections
+    const nodePositions = new Map<string, { x: number; y: number }>()
+    nodes.forEach((node, i) => {
+      const angle = (2 * Math.PI * i) / nodes.length
+      const radius = 150 + (node.connections * 10)
+      nodePositions.set(node.id, {
+        x: centerX + Math.cos(angle) * radius + (Math.random() - 0.5) * 50,
+        y: centerY + Math.sin(angle) * radius + (Math.random() - 0.5) * 50
+      })
+    })
+
+    // Color coding for node types
+    const getNodeColor = (nodeId: string) => {
+      if (nodeId.startsWith('user:')) return '#3b82f6' // blue
+      if (nodeId.startsWith('topic:')) return '#8b5cf6' // purple
+      if (nodeId.startsWith('domain:')) return '#10b981' // green
+      if (nodeId.startsWith('concept:')) return '#f59e0b' // amber
+      return '#6b7280' // gray
+    }
+
+    const getPredicateColor = (predicate: string) => {
+      if (predicate === 'discusses' || predicate === 'interested_in') return '#3b82f6'
+      if (predicate === 'belongs_to_domain') return '#10b981'
+      if (predicate === 'correlates_with' || predicate === 'indicates') return '#8b5cf6'
+      if (predicate === 'similar_to' || predicate === 'related_to') return '#f59e0b'
+      return '#9ca3af'
+    }
+
+    return (
+      <div className="relative border border-gray-200 rounded-lg bg-gray-50">
+        {/* Legend */}
+        <div className="absolute top-2 left-2 bg-white/90 rounded-lg p-2 text-xs shadow-sm z-10">
+          <div className="font-medium mb-1">Node Types:</div>
+          <div className="flex items-center gap-1 mb-0.5"><span className="w-3 h-3 rounded-full bg-blue-500"></span> User</div>
+          <div className="flex items-center gap-1 mb-0.5"><span className="w-3 h-3 rounded-full bg-purple-500"></span> Topic</div>
+          <div className="flex items-center gap-1 mb-0.5"><span className="w-3 h-3 rounded-full bg-green-500"></span> Domain</div>
+          <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-amber-500"></span> Concept</div>
+        </div>
+
+        {/* Stats */}
+        <div className="absolute top-2 right-2 bg-white/90 rounded-lg p-2 text-xs shadow-sm z-10">
+          <div className="font-medium">{nodes.length} nodes</div>
+          <div className="text-gray-500">{edges.length} edges</div>
+        </div>
+
+        {/* Hover tooltip */}
+        {(hoveredNode || hoveredEdge) && (
+          <div className="absolute bottom-2 left-2 right-2 bg-white rounded-lg p-3 shadow-lg z-20 border border-gray-200">
+            {hoveredNode && (
+              <div>
+                <div className="font-medium text-sm mb-1">Node: {hoveredNode}</div>
+                <div className="text-xs text-gray-500">
+                  Type: {hoveredNode.split(':')[0] || 'unknown'} |
+                  Connections: {nodeMap.get(hoveredNode)?.connections || 0}
+                </div>
+              </div>
+            )}
+            {hoveredEdge && (
+              <div>
+                <div className="font-medium text-sm mb-1">
+                  <span className="text-blue-600">{hoveredEdge.source.split(':').pop()}</span>
+                  <span className="mx-2 text-purple-600">{hoveredEdge.label.replace(/_/g, ' ')}</span>
+                  <span className="text-green-600">{hoveredEdge.target.split(':').pop()}</span>
+                </div>
+                <div className="text-xs text-gray-500">
+                  {hoveredEdge.source} → {hoveredEdge.target}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* SVG Graph */}
+        <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} className="cursor-move">
+          {/* Edges */}
+          {edges.slice(0, 200).map((edge, i) => {
+            const sourcePos = nodePositions.get(edge.source)
+            const targetPos = nodePositions.get(edge.target)
+            if (!sourcePos || !targetPos) return null
+
+            const isHovered = hoveredEdge?.source === edge.source && hoveredEdge?.target === edge.target
+
+            return (
+              <g key={i}>
+                <line
+                  x1={sourcePos.x}
+                  y1={sourcePos.y}
+                  x2={targetPos.x}
+                  y2={targetPos.y}
+                  stroke={getPredicateColor(edge.label)}
+                  strokeWidth={isHovered ? 3 : 1.5}
+                  opacity={isHovered ? 1 : 0.6}
+                  className="transition-all duration-150"
+                  onMouseEnter={() => setHoveredEdge(edge)}
+                  onMouseLeave={() => setHoveredEdge(null)}
+                  style={{ cursor: 'pointer' }}
+                />
+                {/* Edge label on hover */}
+                {isHovered && (
+                  <text
+                    x={(sourcePos.x + targetPos.x) / 2}
+                    y={(sourcePos.y + targetPos.y) / 2 - 5}
+                    fontSize="10"
+                    fill={getPredicateColor(edge.label)}
+                    textAnchor="middle"
+                    className="pointer-events-none font-medium"
+                  >
+                    {edge.label.replace(/_/g, ' ')}
+                  </text>
+                )}
+              </g>
+            )
+          })}
+
+          {/* Nodes */}
+          {nodes.slice(0, 100).map((node) => {
+            const pos = nodePositions.get(node.id)
+            if (!pos) return null
+
+            const isHovered = hoveredNode === node.id
+            const radius = 6 + Math.min(node.connections * 2, 12)
+
+            return (
+              <g key={node.id}>
+                <circle
+                  cx={pos.x}
+                  cy={pos.y}
+                  r={isHovered ? radius + 4 : radius}
+                  fill={getNodeColor(node.id)}
+                  stroke={isHovered ? '#1f2937' : '#fff'}
+                  strokeWidth={isHovered ? 3 : 2}
+                  className="transition-all duration-150 cursor-pointer"
+                  onMouseEnter={() => setHoveredNode(node.id)}
+                  onMouseLeave={() => setHoveredNode(null)}
+                />
+                {/* Node label */}
+                <text
+                  x={pos.x}
+                  y={pos.y + radius + 12}
+                  fontSize="9"
+                  fill="#374151"
+                  textAnchor="middle"
+                  className="pointer-events-none"
+                >
+                  {node.id.split(':').pop()?.slice(0, 15) || node.id.slice(0, 15)}
+                </text>
+              </g>
+            )
+          })}
+        </svg>
+
+        {nodes.length > 100 && (
+          <div className="text-center text-xs text-gray-500 py-2 bg-amber-50 rounded-b-lg">
+            Showing first 100 nodes of {nodes.length} total
+          </div>
+        )}
+      </div>
+    )
   }
 
   // Prepare radar chart data
@@ -893,40 +1482,79 @@ export default function ProfileDashboard() {
     return 'Moderate presence'
   }
 
-  // Helper to open data point details modal
+  // Helper to open data point details modal with REAL hybrid signal data
   const openDataPointDetails = async (domainId: string) => {
     const domainRef = getDomainRef(domainId)
     if (!domainRef) return
 
-    // Fetch all matched words from database
+    // Fetch REAL hybrid signal data from database
+    const signals = await getHybridSignalsForDomain(domainId)
+
+    // COMPUTE final score and confidence FROM the actual hybrid signals
+    // Using the same weighted formula as hybrid-aggregator.ts
+    let weightedSum = 0
+    let totalWeight = 0
+    let totalConfidenceWeightedSum = 0
+
+    const liwcSignal = signals.find(s => s.signalType === 'liwc')
+    const embeddingSignal = signals.find(s => s.signalType === 'embedding')
+    const llmSignal = signals.find(s => s.signalType === 'llm')
+
+    // Add LIWC contribution: score * weight * confidence
+    if (liwcSignal && liwcSignal.weightUsed > 0) {
+      const adjustedWeight = liwcSignal.weightUsed * liwcSignal.confidence
+      weightedSum += liwcSignal.score * adjustedWeight
+      totalWeight += adjustedWeight
+      totalConfidenceWeightedSum += liwcSignal.confidence * liwcSignal.weightUsed
+    }
+
+    // Add Embedding contribution
+    if (embeddingSignal && embeddingSignal.weightUsed > 0) {
+      const adjustedWeight = embeddingSignal.weightUsed * embeddingSignal.confidence
+      weightedSum += embeddingSignal.score * adjustedWeight
+      totalWeight += adjustedWeight
+      totalConfidenceWeightedSum += embeddingSignal.confidence * embeddingSignal.weightUsed
+    }
+
+    // Add LLM contribution (highest priority)
+    if (llmSignal && llmSignal.weightUsed > 0) {
+      const adjustedWeight = llmSignal.weightUsed * llmSignal.confidence
+      weightedSum += llmSignal.score * adjustedWeight
+      totalWeight += adjustedWeight
+      totalConfidenceWeightedSum += llmSignal.confidence * llmSignal.weightUsed
+    }
+
+    // Calculate final aggregated score and confidence
+    const finalScore = totalWeight > 0 ? weightedSum / totalWeight : 0.5
+    // Final confidence = sum of (signal confidence * signal weight) / sum of weights
+    const totalBaseWeight = (liwcSignal?.weightUsed ?? 0) + (embeddingSignal?.weightUsed ?? 0) + (llmSignal?.weightUsed ?? 0)
+    const finalConfidence = totalBaseWeight > 0 ? totalConfidenceWeightedSum / totalBaseWeight : 0
+
+    // Fetch matched words from database (for LIWC signal detail)
     const allMatchedWords = await getAllMatchedWords()
 
-    // Map data points with source and detection status
-    const dataPoints = domainRef.dataPoints.map((dp, idx) => {
+    // Map data points with source and detection status (legacy structure for backward compat)
+    const dataPoints = domainRef.dataPoints.map((dp) => {
       // Determine source based on data type
-      let source = 'IndexedDB (Dexie)'
+      let source = 'LIWC Dictionary'
       if (dp.feature.toLowerCase().includes('embedding') || dp.feature.toLowerCase().includes('semantic')) {
-        source = 'TinkerBird Vector DB'
-      } else if (dp.feature.toLowerCase().includes('relation') || dp.feature.toLowerCase().includes('graph')) {
-        source = 'LevelGraph'
-      } else if (domainId.includes('history') || dp.feature.toLowerCase().includes('trend')) {
-        source = 'SQL.js History'
+        source = 'Embedding Similarity'
+      } else if (dp.feature.toLowerCase().includes('llm') || dp.feature.toLowerCase().includes('deep')) {
+        source = 'LLM Analysis'
       }
 
-      // Get domain score data to determine detection
-      const domainScore = enhancedProfile?.domainScores.find(d => d.domainId === domainId)
-      const detected = domainScore ? (domainScore.dataPointsCount || 0) > idx : false
-      const value = detected ? Math.random() * 0.8 + 0.2 : null // Simulated - would come from actual data
+      // Get value from signal data if available
+      const liwcSignal = signals.find(s => s.signalType === 'liwc')
+      const detected = liwcSignal ? liwcSignal.score > 0.5 : false
+      const value = liwcSignal ? liwcSignal.score : null
 
       // Find matched words for this feature
-      // Feature names are stored in snake_case, so convert
       const featureKey = dp.feature.toLowerCase().replace(/\s+/g, '_')
       let matchedWords: Array<{word: string, count: number}> = []
 
       // Search through all categories for matching feature
-      for (const [category, features] of Object.entries(allMatchedWords)) {
+      for (const [, features] of Object.entries(allMatchedWords)) {
         for (const [featureName, words] of Object.entries(features)) {
-          // Match if feature name contains the key or is contained by it
           if (featureName.includes(featureKey) || featureKey.includes(featureName)) {
             matchedWords = words.map(w => ({ word: w.word, count: w.count }))
             break
@@ -943,7 +1571,7 @@ export default function ProfileDashboard() {
         source,
         value,
         detected,
-        matchedWords: matchedWords.slice(0, 5), // Top 5 examples
+        matchedWords: matchedWords.slice(0, 5),
       }
     })
 
@@ -951,6 +1579,10 @@ export default function ProfileDashboard() {
       isOpen: true,
       domainId,
       domainName: domainRef.name,
+      domainDescription: domainRef.description,
+      finalScore,
+      finalConfidence,
+      signals,
       dataPoints,
     })
   }
@@ -1168,6 +1800,98 @@ export default function ProfileDashboard() {
             </div>
           </div>
 
+          {/* Top 10 Domains Section */}
+          {enhancedProfile?.domainScores && enhancedProfile.domainScores.length > 0 && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Top 10 by Score */}
+              <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <div className="flex items-center gap-2 mb-4">
+                  <Target className="w-5 h-5 text-emerald-600" />
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    Top 10 Domains by Score
+                  </h2>
+                </div>
+                <p className="text-sm text-gray-500 mb-4">
+                  Your highest scoring psychological traits (0-1 scale: 0.7+ = HIGH)
+                </p>
+                <div className="space-y-3">
+                  {[...enhancedProfile.domainScores]
+                    .sort((a, b) => b.score - a.score)
+                    .slice(0, 10)
+                    .map((domain, index) => {
+                      const label = DOMAIN_LABELS[domain.domainId] || domain.domainId
+                      const scoreColor = domain.score >= 0.7 ? 'text-emerald-600' : domain.score <= 0.3 ? 'text-rose-600' : 'text-amber-600'
+                      return (
+                        <div key={domain.domainId} className="flex items-center gap-3">
+                          <span className="text-sm font-medium text-gray-400 w-6">#{index + 1}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-medium text-gray-900 truncate text-sm">{label}</span>
+                              <span className={clsx('text-sm font-bold', scoreColor)}>
+                                {(domain.score * 100).toFixed(0)}%
+                              </span>
+                            </div>
+                            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-emerald-500 transition-all"
+                                style={{ width: `${domain.score * 100}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                </div>
+              </div>
+
+              {/* Top 10 by Confidence */}
+              <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <div className="flex items-center gap-2 mb-4">
+                  <Gauge className="w-5 h-5 text-blue-600" />
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    Top 10 Domains by Confidence
+                  </h2>
+                </div>
+                <p className="text-sm text-gray-500 mb-4">
+                  Most reliably measured traits (based on available data)
+                </p>
+                <div className="space-y-3">
+                  {[...enhancedProfile.domainScores]
+                    .sort((a, b) => b.confidence - a.confidence)
+                    .slice(0, 10)
+                    .map((domain, index) => {
+                      const label = DOMAIN_LABELS[domain.domainId] || domain.domainId
+                      const confColor = domain.confidence >= 0.7 ? 'text-blue-600' : domain.confidence >= 0.4 ? 'text-amber-600' : 'text-gray-500'
+                      return (
+                        <div key={domain.domainId} className="flex items-center gap-3">
+                          <span className="text-sm font-medium text-gray-400 w-6">#{index + 1}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-medium text-gray-900 truncate text-sm">{label}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-gray-500">
+                                  Score: {(domain.score * 100).toFixed(0)}%
+                                </span>
+                                <span className={clsx('text-sm font-bold', confColor)}>
+                                  {(domain.confidence * 100).toFixed(0)}%
+                                </span>
+                              </div>
+                            </div>
+                            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-blue-500 transition-all"
+                                style={{ width: `${domain.confidence * 100}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Trait History */}
           {selectedTrait && historyData.length > 1 && (
             <div className="bg-white rounded-xl p-6 border border-gray-200">
@@ -1263,16 +1987,36 @@ export default function ProfileDashboard() {
       {/* ==================== DOMAINS TAB ==================== */}
       {activeTab === 'domains' && (
         <div className="space-y-6">
-          {/* All 22+ Domain Scores */}
+          {/* All Domain Scores */}
           <div className="bg-white rounded-xl p-6 border border-gray-200">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <Target className="w-5 h-5 text-primary-600" />
-              All Domain Scores ({enhancedProfile?.domainScores.length || 0} domains)
+              All Domain Scores ({DOMAIN_REFERENCE.length} domains)
             </h2>
 
             {/* Legend explaining Score vs Confidence */}
             <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100">
               <h4 className="text-sm font-semibold text-gray-800 mb-2">How to Read Your Profile:</h4>
+
+              {/* Score Range Legend */}
+              <div className="mb-3 p-2 bg-white/60 rounded border border-blue-100">
+                <p className="text-xs font-semibold text-gray-700 mb-1">Score Interpretation:</p>
+                <div className="flex flex-wrap gap-3 text-xs">
+                  <span className="flex items-center gap-1">
+                    <span className="w-3 h-3 rounded bg-red-400"></span>
+                    <span className="text-gray-600"><strong>0-30%</strong> = LOW (weak/absent)</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-3 h-3 rounded bg-yellow-400"></span>
+                    <span className="text-gray-600"><strong>40-60%</strong> = NEUTRAL (unknown/mixed)</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-3 h-3 rounded bg-green-400"></span>
+                    <span className="text-gray-600"><strong>70-100%</strong> = HIGH (strong indicators)</span>
+                  </span>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
                 <div className="flex items-start gap-2">
                   <div className="w-6 h-6 rounded bg-blue-500 flex items-center justify-center flex-shrink-0">
@@ -1280,7 +2024,7 @@ export default function ProfileDashboard() {
                   </div>
                   <div>
                     <p className="font-semibold text-gray-800">Score (0-100%)</p>
-                    <p className="text-gray-600">Your level on this trait. High = more of this trait, Low = less of it.</p>
+                    <p className="text-gray-600">Your level on this trait based on conversation analysis.</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
@@ -1289,7 +2033,7 @@ export default function ProfileDashboard() {
                   </div>
                   <div>
                     <p className="font-semibold text-gray-800">Confidence</p>
-                    <p className="text-gray-600">How sure we are about this score. More conversations = higher confidence.</p>
+                    <p className="text-gray-600">How sure we are. Low confidence = not enough data yet.</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
@@ -1361,21 +2105,40 @@ export default function ProfileDashboard() {
                       {/* Score Bar with Interpretation */}
                       <div className="mb-3">
                         <div className="flex items-center justify-between text-xs mb-1">
-                          <span className="font-medium text-gray-700">
-                            {getScoreInterpretation(domain.domainId, domain.score ?? 0)}
+                          <span className={clsx(
+                            "font-medium",
+                            (domain.confidence ?? 0) < 0.05 ? "text-gray-400 italic" : "text-gray-700"
+                          )}>
+                            {(domain.confidence ?? 0) < 0.05
+                              ? "Awaiting analysis..."
+                              : getScoreInterpretation(domain.domainId, domain.score ?? 0)
+                            }
                           </span>
-                          <span className="font-bold text-gray-900">
-                            {((domain.score ?? 0) * 100).toFixed(0)}%
+                          <span className={clsx(
+                            "font-bold",
+                            (domain.confidence ?? 0) < 0.05 ? "text-gray-400" : "text-gray-900"
+                          )}>
+                            {(domain.confidence ?? 0) < 0.05
+                              ? "—"
+                              : `${((domain.score ?? 0) * 100).toFixed(0)}%`
+                            }
                           </span>
                         </div>
                         <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{
-                              width: `${(domain.score ?? 0) * 100}%`,
-                              backgroundColor: DOMAIN_COLORS[domain.domainId] || '#6b7280',
-                            }}
-                          />
+                          {(domain.confidence ?? 0) < 0.05 ? (
+                            <div
+                              className="h-full rounded-full bg-gray-300 animate-pulse"
+                              style={{ width: '100%' }}
+                            />
+                          ) : (
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${(domain.score ?? 0) * 100}%`,
+                                backgroundColor: DOMAIN_COLORS[domain.domainId] || '#6b7280',
+                              }}
+                            />
+                          )}
                         </div>
                       </div>
 
@@ -2341,7 +3104,7 @@ export default function ProfileDashboard() {
       {/* Data Inspector Modal */}
       {inspectorModal.isOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[80vh] flex flex-col">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col">
             {/* Modal Header */}
             <div className="flex items-center justify-between p-4 border-b border-gray-200">
               <div className="flex items-center gap-3">
@@ -2355,14 +3118,52 @@ export default function ProfileDashboard() {
                   </span>
                 )}
               </div>
-              <button
-                onClick={() =>
-                  setInspectorModal({ isOpen: false, title: '', data: null, loading: false })
-                }
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
+              <div className="flex items-center gap-2">
+                {/* View Mode Tabs */}
+                <div className="flex bg-gray-100 rounded-lg p-1">
+                  <button
+                    onClick={() => setInspectorModal({ ...inspectorModal, viewMode: 'table' })}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      inspectorModal.viewMode === 'table'
+                        ? 'bg-white text-primary-700 shadow-sm'
+                        : 'text-gray-600 hover:text-gray-800'
+                    }`}
+                  >
+                    Table
+                  </button>
+                  <button
+                    onClick={() => setInspectorModal({ ...inspectorModal, viewMode: 'json' })}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      inspectorModal.viewMode === 'json'
+                        ? 'bg-white text-primary-700 shadow-sm'
+                        : 'text-gray-600 hover:text-gray-800'
+                    }`}
+                  >
+                    JSON
+                  </button>
+                  {/* Graph view only for LevelDB stores */}
+                  {(inspectorModal.storeKey === 'graphTriples' || inspectorModal.storeKey === 'graphByCategory') && (
+                    <button
+                      onClick={() => setInspectorModal({ ...inspectorModal, viewMode: 'graph' })}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                        inspectorModal.viewMode === 'graph'
+                          ? 'bg-white text-primary-700 shadow-sm'
+                          : 'text-gray-600 hover:text-gray-800'
+                      }`}
+                    >
+                      Graph
+                    </button>
+                  )}
+                </div>
+                <button
+                  onClick={() =>
+                    setInspectorModal({ isOpen: false, title: '', data: null, loading: false, storeKey: null, viewMode: 'table' })
+                  }
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
             </div>
 
             {/* Modal Content */}
@@ -2372,59 +3173,28 @@ export default function ProfileDashboard() {
                   <div className="animate-spin w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full" />
                 </div>
               ) : inspectorModal.data && inspectorModal.data.length > 0 ? (
-                <div className="space-y-3">
-                  {/* Formatted Card View */}
-                  {inspectorModal.data.slice(0, 50).map((item: unknown, idx) => {
-                    const record = item as Record<string, unknown>
-                    return (
-                      <div key={idx} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-medium text-gray-400">Record #{idx + 1}</span>
-                          {record.id ? (
-                            <span className="text-xs font-mono text-gray-500">ID: {String(record.id).slice(0, 8)}...</span>
-                          ) : null}
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                          {Object.entries(record).slice(0, 8).map(([key, value]) => (
-                            <div key={key} className="flex flex-col">
-                              <span className="text-xs font-medium text-gray-500 capitalize">
-                                {key.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ')}
-                              </span>
-                              <span className="text-sm text-gray-800 truncate">
-                                {typeof value === 'object' && value !== null
-                                  ? Array.isArray(value)
-                                    ? `[${value.length} items]`
-                                    : '{object}'
-                                  : typeof value === 'boolean'
-                                  ? value ? '✓ Yes' : '✗ No'
-                                  : String(value).slice(0, 100) || '-'}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                        {Object.keys(record).length > 8 && (
-                          <p className="text-xs text-gray-400 mt-2">
-                            +{Object.keys(record).length - 8} more fields
-                          </p>
-                        )}
-                      </div>
-                    )
-                  })}
-                  {inspectorModal.data.length > 50 && (
-                    <p className="text-center text-sm text-gray-500 py-2">
-                      Showing first 50 of {inspectorModal.data.length} records
-                    </p>
+                <>
+                  {/* TABLE VIEW */}
+                  {inspectorModal.viewMode === 'table' && (
+                    <div className="overflow-x-auto">
+                      {renderDataTable(inspectorModal.data, inspectorModal.storeKey)}
+                    </div>
                   )}
-                  {/* Raw JSON Toggle */}
-                  <details className="mt-4">
-                    <summary className="cursor-pointer text-sm text-primary-600 hover:text-primary-700">
-                      View Raw JSON
-                    </summary>
-                    <pre className="mt-2 text-xs font-mono bg-gray-100 p-4 rounded-lg overflow-auto whitespace-pre-wrap max-h-96">
+
+                  {/* JSON VIEW */}
+                  {inspectorModal.viewMode === 'json' && (
+                    <pre className="text-xs font-mono bg-gray-50 p-4 rounded-lg overflow-auto whitespace-pre-wrap max-h-[60vh] border border-gray-200">
                       {JSON.stringify(inspectorModal.data, null, 2)}
                     </pre>
-                  </details>
-                </div>
+                  )}
+
+                  {/* GRAPH VIEW - Interactive visualization for LevelDB */}
+                  {inspectorModal.viewMode === 'graph' && (inspectorModal.storeKey === 'graphTriples' || inspectorModal.storeKey === 'graphByCategory') && (
+                    <div className="relative">
+                      {renderGraphVisualization(inspectorModal.data as Triple[])}
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="text-center py-12 text-gray-500">
                   <Database className="w-12 h-12 mx-auto mb-2 opacity-30" />
@@ -2465,7 +3235,7 @@ export default function ProfileDashboard() {
         </div>
       )}
 
-      {/* Data Point Details Modal */}
+      {/* Data Point Details Modal - Shows HOW scores are computed */}
       {dataPointModal?.isOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
@@ -2477,7 +3247,7 @@ export default function ProfileDashboard() {
                   {dataPointModal.domainName}
                 </h3>
                 <p className="text-sm text-gray-500 mt-1">
-                  Data point details and sources
+                  {dataPointModal.domainDescription}
                 </p>
               </div>
               <button
@@ -2490,136 +3260,284 @@ export default function ProfileDashboard() {
 
             {/* Modal Content */}
             <div className="flex-1 overflow-auto p-5">
-              {/* Data Sources Legend */}
+              {/* Final Aggregated Score */}
+              <div className={clsx(
+                "mb-5 p-4 rounded-lg border",
+                dataPointModal.finalConfidence < 0.05
+                  ? "bg-gray-50 border-gray-200"
+                  : "bg-gradient-to-r from-primary-100 to-violet-100 border-primary-200"
+              )}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className={clsx(
+                      "text-sm font-semibold",
+                      dataPointModal.finalConfidence < 0.05 ? "text-gray-600" : "text-primary-800"
+                    )}>Final Aggregated Score</p>
+                    <p className={clsx(
+                      "text-xs mt-1",
+                      dataPointModal.finalConfidence < 0.05 ? "text-gray-500" : "text-primary-600"
+                    )}>
+                      {dataPointModal.finalConfidence < 0.05
+                        ? "No analysis data yet - chat more to build profile"
+                        : "Combined from 3 analysis methods using weighted average"
+                      }
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    {dataPointModal.finalConfidence < 0.05 ? (
+                      <>
+                        <p className="text-xl font-medium text-gray-400">
+                          Pending
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          Awaiting analysis
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-3xl font-bold text-primary-700">
+                          {Math.round(dataPointModal.finalScore * 100)}%
+                        </p>
+                        <p className="text-xs text-primary-500">
+                          Confidence: {Math.round(dataPointModal.finalConfidence * 100)}%
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-3 h-3 bg-white/50 rounded-full overflow-hidden">
+                  {dataPointModal.finalConfidence < 0.05 ? (
+                    <div className="h-full bg-gray-300 rounded-full animate-pulse" style={{ width: '100%' }} />
+                  ) : (
+                    <div
+                      className="h-full bg-gradient-to-r from-primary-500 to-violet-500 rounded-full transition-all"
+                      style={{ width: `${dataPointModal.finalScore * 100}%` }}
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Analysis Methods Legend */}
               <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                <p className="text-xs font-medium text-gray-700 mb-2">Data Storage Locations:</p>
+                <p className="text-xs font-medium text-gray-700 mb-2">Hybrid Analysis Method (3 Signals):</p>
                 <div className="flex flex-wrap gap-3 text-xs">
-                  <span className="flex items-center gap-1 text-blue-600">
-                    <HardDrive className="w-3 h-3" /> IndexedDB (Dexie)
+                  <span className="flex items-center gap-1 text-amber-600">
+                    <FileText className="w-3 h-3" /> LIWC (20%) - Word Matching
                   </span>
                   <span className="flex items-center gap-1 text-purple-600">
-                    <Network className="w-3 h-3" /> TinkerBird Vector DB
+                    <Network className="w-3 h-3" /> Embedding (30%) - Semantic Similarity
                   </span>
-                  <span className="flex items-center gap-1 text-green-600">
-                    <Layers className="w-3 h-3" /> LevelGraph
-                  </span>
-                  <span className="flex items-center gap-1 text-amber-600">
-                    <FileText className="w-3 h-3" /> SQL.js History
+                  <span className="flex items-center gap-1 text-blue-600">
+                    <Zap className="w-3 h-3" /> LLM (50%) - Deep Analysis
                   </span>
                 </div>
               </div>
 
-              {/* Data Points Table */}
-              <div className="space-y-3">
-                {dataPointModal.dataPoints.map((dp, idx) => (
-                  <div
-                    key={idx}
-                    className={clsx(
+              {/* Three Signal Cards */}
+              <div className="space-y-4">
+                {/* LIWC Signal */}
+                {(() => {
+                  const liwcSignal = dataPointModal.signals.find(s => s.signalType === 'liwc')
+                  return (
+                    <div className={clsx(
                       'p-4 rounded-lg border-2 transition-all',
-                      dp.detected
-                        ? 'border-green-200 bg-green-50'
-                        : 'border-gray-200 bg-gray-50'
-                    )}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className={clsx(
-                          'w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold',
-                          dp.detected ? 'bg-green-500 text-white' : 'bg-gray-300 text-white'
-                        )}>
-                          {dp.detected ? '✓' : idx + 1}
-                        </span>
-                        <h4 className="font-semibold text-gray-900">{dp.feature}</h4>
-                      </div>
-                      <span className={clsx(
-                        'px-2 py-1 rounded text-xs font-medium',
-                        dp.detected ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                      )}>
-                        {dp.detected ? 'Detected' : 'Not Yet Detected'}
-                      </span>
-                    </div>
-
-                    {/* Indicator/Description */}
-                    {dp.indicator && (
-                      <p className="text-sm text-gray-600 mb-2">
-                        <span className="font-medium">Indicator:</span> {dp.indicator}
-                      </p>
-                    )}
-
-                    {/* High/Low descriptions */}
-                    {dp.high && dp.low && (
-                      <div className="flex gap-4 text-xs mb-2">
-                        <span className="text-green-600">
-                          <span className="font-medium">High:</span> {dp.high}
-                        </span>
-                        <span className="text-orange-600">
-                          <span className="font-medium">Low:</span> {dp.low}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Matched Words (detected examples) */}
-                    {dp.matchedWords && dp.matchedWords.length > 0 && (
-                      <div className="mt-2 p-2 bg-blue-50 rounded border border-blue-100">
-                        <p className="text-xs font-medium text-blue-700 mb-1">Detected words:</p>
-                        <div className="flex flex-wrap gap-1">
-                          {dp.matchedWords.map((mw, i) => (
-                            <span
-                              key={i}
-                              className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-800"
-                            >
-                              "{mw.word}" {mw.count > 1 && <span className="ml-1 text-blue-500">({mw.count}x)</span>}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Data Source and Value */}
-                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-200">
-                      <div className="flex items-center gap-2 text-xs">
-                        {dp.source.includes('IndexedDB') && <HardDrive className="w-3 h-3 text-blue-500" />}
-                        {dp.source.includes('Vector') && <Network className="w-3 h-3 text-purple-500" />}
-                        {dp.source.includes('LevelGraph') && <Layers className="w-3 h-3 text-green-500" />}
-                        {dp.source.includes('SQL') && <FileText className="w-3 h-3 text-amber-500" />}
-                        <span className="text-gray-600">{dp.source}</span>
-                      </div>
-                      {dp.detected && dp.value !== null && (
+                      liwcSignal ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50'
+                    )}>
+                      <div className="flex items-start justify-between mb-3">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-gray-500">Value:</span>
-                          <span className="text-sm font-bold text-gray-900">
-                            {(dp.value * 100).toFixed(0)}%
+                          <span className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center">
+                            <FileText className="w-4 h-4 text-white" />
                           </span>
-                          <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-primary-500 rounded-full"
-                              style={{ width: `${dp.value * 100}%` }}
-                            />
+                          <div>
+                            <h4 className="font-semibold text-gray-900">LIWC Analysis</h4>
+                            <p className="text-xs text-gray-500">Dictionary-based word matching (fast)</p>
                           </div>
+                        </div>
+                        <span className={clsx(
+                          'px-2 py-1 rounded text-xs font-medium',
+                          liwcSignal ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'
+                        )}>
+                          Weight: 20%
+                        </span>
+                      </div>
+
+                      {liwcSignal ? (
+                        <>
+                          <div className="flex items-center gap-4 mb-3">
+                            <div className="flex-1">
+                              <div className="flex justify-between text-xs mb-1">
+                                <span className="text-gray-600">Score</span>
+                                <span className="font-semibold">{Math.round(liwcSignal.score * 100)}%</span>
+                              </div>
+                              <div className="h-2 bg-amber-200 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-amber-500 rounded-full"
+                                  style={{ width: `${liwcSignal.score * 100}%` }}
+                                />
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-gray-500">Confidence</p>
+                              <p className="text-sm font-semibold text-amber-700">{Math.round(liwcSignal.confidence * 100)}%</p>
+                            </div>
+                          </div>
+
+                          {liwcSignal.matchedWords && liwcSignal.matchedWords.length > 0 && (
+                            <div className="p-2 bg-white/50 rounded border border-amber-200">
+                              <p className="text-xs font-medium text-amber-700 mb-1">Matched Keywords:</p>
+                              <div className="flex flex-wrap gap-1">
+                                {liwcSignal.matchedWords.map((word, i) => (
+                                  <span key={i} className="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-800">
+                                    "{word}"
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-sm text-gray-500 italic">No LIWC analysis available yet</p>
+                      )}
+                    </div>
+                  )
+                })()}
+
+                {/* Embedding Signal */}
+                {(() => {
+                  const embeddingSignal = dataPointModal.signals.find(s => s.signalType === 'embedding')
+                  return (
+                    <div className={clsx(
+                      'p-4 rounded-lg border-2 transition-all',
+                      embeddingSignal ? 'border-purple-200 bg-purple-50' : 'border-gray-200 bg-gray-50'
+                    )}>
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-8 h-8 rounded-full bg-purple-500 flex items-center justify-center">
+                            <Network className="w-4 h-4 text-white" />
+                          </span>
+                          <div>
+                            <h4 className="font-semibold text-gray-900">Embedding Similarity</h4>
+                            <p className="text-xs text-gray-500">Semantic comparison with trait prototypes</p>
+                          </div>
+                        </div>
+                        <span className={clsx(
+                          'px-2 py-1 rounded text-xs font-medium',
+                          embeddingSignal ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-500'
+                        )}>
+                          Weight: 30%
+                        </span>
+                      </div>
+
+                      {embeddingSignal ? (
+                        <>
+                          <div className="flex items-center gap-4 mb-3">
+                            <div className="flex-1">
+                              <div className="flex justify-between text-xs mb-1">
+                                <span className="text-gray-600">Score</span>
+                                <span className="font-semibold">{Math.round(embeddingSignal.score * 100)}%</span>
+                              </div>
+                              <div className="h-2 bg-purple-200 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-purple-500 rounded-full"
+                                  style={{ width: `${embeddingSignal.score * 100}%` }}
+                                />
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-gray-500">Confidence</p>
+                              <p className="text-sm font-semibold text-purple-700">{Math.round(embeddingSignal.confidence * 100)}%</p>
+                            </div>
+                          </div>
+
+                          {embeddingSignal.prototypeSimilarity !== null && (
+                            <div className="p-2 bg-white/50 rounded border border-purple-200">
+                              <p className="text-xs font-medium text-purple-700 mb-1">Prototype Similarity:</p>
+                              <p className="text-sm text-purple-800">
+                                Your messages are {Math.round(embeddingSignal.prototypeSimilarity * 100)}% similar to typical "{dataPointModal.domainName}" expressions
+                              </p>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-sm text-gray-500 italic">No embedding analysis available yet</p>
+                      )}
+                    </div>
+                  )
+                })()}
+
+                {/* LLM Signal */}
+                {(() => {
+                  const llmSignal = dataPointModal.signals.find(s => s.signalType === 'llm')
+                  return (
+                    <div className={clsx(
+                      'p-4 rounded-lg border-2 transition-all',
+                      llmSignal ? 'border-blue-200 bg-blue-50' : 'border-gray-200 bg-gray-50'
+                    )}>
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center">
+                            <Zap className="w-4 h-4 text-white" />
+                          </span>
+                          <div>
+                            <h4 className="font-semibold text-gray-900">LLM Deep Analysis</h4>
+                            <p className="text-xs text-gray-500">AI-powered semantic understanding (most reliable)</p>
+                          </div>
+                        </div>
+                        <span className={clsx(
+                          'px-2 py-1 rounded text-xs font-medium',
+                          llmSignal ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
+                        )}>
+                          Weight: 50%
+                        </span>
+                      </div>
+
+                      {llmSignal ? (
+                        <>
+                          <div className="flex items-center gap-4 mb-3">
+                            <div className="flex-1">
+                              <div className="flex justify-between text-xs mb-1">
+                                <span className="text-gray-600">Score</span>
+                                <span className="font-semibold">{Math.round(llmSignal.score * 100)}%</span>
+                              </div>
+                              <div className="h-2 bg-blue-200 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-blue-500 rounded-full"
+                                  style={{ width: `${llmSignal.score * 100}%` }}
+                                />
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-gray-500">Confidence</p>
+                              <p className="text-sm font-semibold text-blue-700">{Math.round(llmSignal.confidence * 100)}%</p>
+                            </div>
+                          </div>
+
+                          {llmSignal.evidenceText && (
+                            <div className="p-2 bg-white/50 rounded border border-blue-200">
+                              <p className="text-xs font-medium text-blue-700 mb-1">LLM Reasoning:</p>
+                              <p className="text-sm text-blue-800 italic">"{llmSignal.evidenceText}"</p>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="text-sm text-gray-500 italic">
+                          <p>LLM analysis not yet triggered</p>
+                          <p className="text-xs mt-1">Runs after every 5 messages or 5 minutes</p>
                         </div>
                       )}
                     </div>
-                  </div>
-                ))}
+                  )
+                })()}
               </div>
 
-              {/* Summary */}
-              <div className="mt-4 p-4 bg-primary-50 rounded-lg border border-primary-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-primary-800">
-                      Detection Summary
-                    </p>
-                    <p className="text-xs text-primary-600">
-                      {dataPointModal.dataPoints.filter(dp => dp.detected).length} of {dataPointModal.dataPoints.length} data points detected
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-2xl font-bold text-primary-700">
-                      {Math.round((dataPointModal.dataPoints.filter(dp => dp.detected).length / dataPointModal.dataPoints.length) * 100)}%
-                    </p>
-                    <p className="text-xs text-primary-500">Coverage</p>
-                  </div>
+              {/* Calculation Explanation */}
+              <div className="mt-4 p-4 bg-gray-100 rounded-lg border border-gray-200">
+                <p className="text-xs font-semibold text-gray-700 mb-2">How the Final Score is Calculated:</p>
+                <div className="text-xs text-gray-600 space-y-1">
+                  <p>Final Score = (LIWC × 0.2 × conf) + (Embedding × 0.3 × conf) + (LLM × 0.5 × conf)</p>
+                  <p className="text-gray-500 mt-2">
+                    Each signal's weight is multiplied by its confidence. Higher confidence signals have more influence on the final score.
+                  </p>
                 </div>
               </div>
             </div>
@@ -2627,7 +3545,9 @@ export default function ProfileDashboard() {
             {/* Modal Footer */}
             <div className="flex items-center justify-between p-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
               <p className="text-xs text-gray-500">
-                More conversations will improve detection accuracy
+                {dataPointModal.signals.length === 0
+                  ? 'Start chatting to generate analysis signals'
+                  : `${dataPointModal.signals.length} signal(s) active`}
               </p>
               <button
                 onClick={() => setDataPointModal(null)}

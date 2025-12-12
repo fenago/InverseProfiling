@@ -657,6 +657,259 @@ export const AESTHETIC = {
   ],
 } as const
 
+// === DARK TRIAD ===
+export const DARK_TRIAD = {
+  narcissism: [
+    'special', 'unique', 'superior', 'best', 'exceptional', 'extraordinary', 'remarkable',
+    'admire', 'admiration', 'praise', 'compliment', 'recognition', 'attention', 'spotlight',
+    'deserve', 'entitled', 'important', 'impressive', 'successful', 'winner', 'champion',
+    'brilliant', 'genius', 'talented', 'gifted', 'perfect', 'flawless', 'magnificent',
+    'dominant', 'powerful', 'influential', 'prestigious', 'elite', 'exclusive', 'vip',
+    'me', 'my', 'mine', 'myself', 'i', 'envy', 'jealous', 'better than', 'above',
+    'look at me', 'notice me', 'appreciate me', 'respect me', 'worship'
+  ],
+  machiavellianism: [
+    'manipulate', 'manipulation', 'strategy', 'strategic', 'scheme', 'plot', 'plan',
+    'calculate', 'calculated', 'cunning', 'shrewd', 'clever', 'smart', 'outsmart',
+    'advantage', 'leverage', 'exploit', 'use', 'useful', 'benefit', 'gain', 'profit',
+    'control', 'influence', 'persuade', 'convince', 'sway', 'negotiate', 'deal',
+    'alliance', 'ally', 'enemy', 'opponent', 'competitor', 'rivalry', 'win', 'lose',
+    'power', 'position', 'status', 'reputation', 'image', 'appear', 'impression',
+    'network', 'connection', 'favor', 'owe', 'debt', 'exchange', 'trade', 'quid pro quo',
+    'ends justify means', 'necessary evil', 'pragmatic', 'realistic', 'cynical'
+  ],
+  psychopathy: [
+    'thrill', 'excitement', 'rush', 'adrenaline', 'risk', 'danger', 'fearless',
+    'bold', 'daring', 'reckless', 'impulsive', 'spontaneous', 'unpredictable',
+    'bored', 'boring', 'tedious', 'routine', 'monotonous', 'restless', 'impatient',
+    'cold', 'detached', 'indifferent', 'unconcerned', 'callous', 'heartless',
+    'ruthless', 'merciless', 'cruel', 'harsh', 'tough', 'hard', 'remorseless',
+    'guilt-free', 'shameless', 'unapologetic', 'blame', 'fault', 'excuse', 'justify',
+    'superficial', 'charm', 'charming', 'charisma', 'smooth', 'glib', 'persuasive',
+    'lie', 'lying', 'deceive', 'deception', 'fake', 'pretend', 'mask', 'act'
+  ],
+} as const
+
+// === LOVE LANGUAGES ===
+export const LOVE_LANGUAGES = {
+  words_of_affirmation: [
+    'love you', 'appreciate', 'proud of', 'grateful', 'thank', 'thanks', 'thankful',
+    'amazing', 'wonderful', 'incredible', 'beautiful', 'handsome', 'gorgeous',
+    'smart', 'brilliant', 'talented', 'kind', 'caring', 'thoughtful', 'sweet',
+    'support', 'believe in', 'encourage', 'praise', 'compliment', 'admire',
+    'respect', 'value', 'cherish', 'treasure', 'mean so much', 'lucky to have',
+    'best', 'favorite', 'special', 'unique', 'one of a kind', 'irreplaceable',
+    'well done', 'great job', 'impressed', 'proud', 'accomplished', 'success'
+  ],
+  quality_time: [
+    'together', 'spend time', 'hang out', 'be with', 'presence', 'company',
+    'talk', 'conversation', 'chat', 'discuss', 'share', 'listen', 'attention',
+    'focus', 'undivided', 'priority', 'dedicated', 'exclusive', 'alone time',
+    'date', 'outing', 'trip', 'vacation', 'adventure', 'experience', 'memory',
+    'moments', 'connection', 'bond', 'relationship', 'intimacy', 'closeness',
+    'quality', 'meaningful', 'deep', 'engage', 'participate', 'involve', 'join'
+  ],
+  gifts: [
+    'gift', 'present', 'surprise', 'give', 'gave', 'brought', 'buy', 'bought',
+    'shop', 'shopping', 'treat', 'token', 'souvenir', 'memento', 'keepsake',
+    'remember', 'thought of you', 'reminded me', 'saw this', 'perfect for',
+    'special', 'meaningful', 'symbolic', 'gesture', 'effort', 'thoughtful',
+    'wrap', 'unwrap', 'open', 'receive', 'package', 'deliver', 'mail', 'send',
+    'flowers', 'chocolate', 'jewelry', 'card', 'letter', 'note', 'handmade', 'diy'
+  ],
+  acts_of_service: [
+    'help', 'helped', 'helping', 'assist', 'support', 'do for', 'take care',
+    'handle', 'manage', 'fix', 'repair', 'clean', 'cook', 'prepare', 'make',
+    'run errands', 'chores', 'tasks', 'responsibilities', 'duties', 'burden',
+    'ease', 'lighten', 'relieve', 'stress', 'load', 'shoulder', 'carry',
+    'sacrifice', 'effort', 'work', 'labor', 'action', 'deed', 'favor',
+    'serve', 'service', 'cater', 'provide', 'arrange', 'organize', 'plan for'
+  ],
+  physical_touch: [
+    'touch', 'hold', 'hug', 'embrace', 'cuddle', 'snuggle', 'caress', 'stroke',
+    'kiss', 'peck', 'smooch', 'hand', 'arm', 'shoulder', 'back', 'face', 'hair',
+    'close', 'near', 'proximity', 'physical', 'contact', 'affection', 'warmth',
+    'comfort', 'soothe', 'massage', 'rub', 'pat', 'squeeze', 'gentle', 'soft',
+    'intimate', 'sensual', 'tender', 'loving', 'romantic', 'passionate',
+    'hold hands', 'lean on', 'sit close', 'next to', 'beside', 'wrap around'
+  ],
+} as const
+
+// === LOCUS OF CONTROL ===
+export const LOCUS_OF_CONTROL = {
+  internal: [
+    'i can', 'i will', 'i choose', 'i decide', 'i control', 'i determine',
+    'my choice', 'my decision', 'my responsibility', 'my fault', 'my doing',
+    'effort', 'hard work', 'dedication', 'persistence', 'perseverance', 'determination',
+    'skill', 'ability', 'capability', 'competence', 'talent', 'strength',
+    'achieve', 'accomplish', 'succeed', 'earn', 'deserve', 'create', 'make happen',
+    'take charge', 'take control', 'take action', 'initiative', 'proactive',
+    'responsible', 'accountability', 'ownership', 'in my hands', 'up to me',
+    'self-made', 'self-reliant', 'independent', 'autonomous', 'empowered'
+  ],
+  external: [
+    'luck', 'lucky', 'unlucky', 'chance', 'fate', 'destiny', 'meant to be',
+    'coincidence', 'random', 'accident', 'happen to', 'by chance', 'fortunate',
+    'unfortunately', 'beyond control', 'out of hands', 'nothing i can do',
+    'they', 'them', 'others', 'people', 'society', 'system', 'government',
+    'circumstances', 'situation', 'environment', 'conditions', 'context',
+    'unfair', 'unjust', 'biased', 'rigged', 'stacked against', 'disadvantage',
+    'victim', 'powerless', 'helpless', 'hopeless', 'trapped', 'stuck',
+    'blame', 'fault of', 'because of', 'thanks to', 'due to', 'caused by'
+  ],
+} as const
+
+// === LIFE SATISFACTION ===
+export const LIFE_SATISFACTION = {
+  positive_life: [
+    'satisfied', 'content', 'fulfilled', 'happy', 'joyful', 'blessed', 'grateful',
+    'fortunate', 'lucky', 'thriving', 'flourishing', 'prospering', 'succeeding',
+    'meaningful', 'purposeful', 'worthwhile', 'valuable', 'significant', 'important',
+    'good life', 'great life', 'best life', 'loving life', 'living well',
+    'accomplished', 'achieved', 'realized', 'attained', 'reached', 'goals met',
+    'dreams', 'aspirations', 'hopes', 'wishes', 'desires', 'wants', 'needs met',
+    'balance', 'harmony', 'peace', 'calm', 'serene', 'tranquil', 'relaxed',
+    'optimistic', 'positive', 'hopeful', 'bright future', 'looking forward'
+  ],
+  negative_life: [
+    'dissatisfied', 'unsatisfied', 'unfulfilled', 'unhappy', 'miserable', 'depressed',
+    'unfortunate', 'unlucky', 'struggling', 'suffering', 'failing', 'stuck',
+    'meaningless', 'pointless', 'worthless', 'empty', 'hollow', 'void',
+    'bad life', 'terrible life', 'hate my life', 'hate life', 'not living',
+    'regret', 'remorse', 'guilt', 'shame', 'disappointment', 'letdown',
+    'unfulfilled dreams', 'missed opportunities', 'wasted', 'lost', 'behind',
+    'imbalance', 'chaos', 'stress', 'anxiety', 'worry', 'fear', 'dread',
+    'pessimistic', 'negative', 'hopeless', 'bleak future', 'dreading'
+  ],
+  wellbeing_indicators: [
+    'healthy', 'health', 'wellness', 'well-being', 'fit', 'fitness', 'energy',
+    'sleep', 'rest', 'relaxation', 'recovery', 'balance', 'stability',
+    'relationships', 'connections', 'friends', 'family', 'community', 'belonging',
+    'growth', 'learning', 'development', 'progress', 'improvement', 'better',
+    'autonomy', 'freedom', 'choice', 'control', 'independence', 'self-determination',
+    'competence', 'mastery', 'skill', 'ability', 'capable', 'confident'
+  ],
+} as const
+
+// === SOCIAL SUPPORT ===
+export const SOCIAL_SUPPORT = {
+  emotional_support: [
+    'listen', 'listening', 'heard', 'understand', 'understanding', 'empathy',
+    'care', 'caring', 'concern', 'concerned', 'worry', 'worried about me',
+    'comfort', 'comforting', 'soothe', 'soothing', 'reassure', 'reassurance',
+    'validate', 'validation', 'accept', 'acceptance', 'non-judgmental',
+    'there for me', 'by my side', 'support', 'supportive', 'encourage',
+    'love', 'affection', 'warmth', 'kindness', 'compassion', 'sympathy',
+    'shoulder to cry', 'vent', 'express', 'share feelings', 'open up'
+  ],
+  instrumental_support: [
+    'help', 'helped', 'helping', 'assist', 'assistance', 'aid', 'support',
+    'lend', 'borrow', 'give', 'provide', 'offer', 'pitch in', 'chip in',
+    'money', 'financial', 'funds', 'loan', 'pay', 'cover', 'expense',
+    'ride', 'drive', 'pick up', 'drop off', 'transportation', 'car',
+    'babysit', 'watch', 'take care', 'look after', 'cover for', 'fill in',
+    'task', 'chore', 'errand', 'favor', 'request', 'need', 'require',
+    'resource', 'tool', 'equipment', 'supplies', 'materials', 'access'
+  ],
+  informational_support: [
+    'advice', 'suggest', 'suggestion', 'recommend', 'recommendation', 'tip',
+    'information', 'info', 'knowledge', 'know-how', 'expertise', 'experience',
+    'teach', 'show', 'explain', 'clarify', 'guide', 'guidance', 'direction',
+    'mentor', 'coach', 'counsel', 'consult', 'consultation', 'feedback',
+    'opinion', 'perspective', 'viewpoint', 'insight', 'wisdom', 'lesson',
+    'resource', 'reference', 'link', 'contact', 'connection', 'introduction',
+    'learn', 'discover', 'find out', 'figure out', 'understand', 'realize'
+  ],
+  network_indicators: [
+    'friend', 'friends', 'friendship', 'buddy', 'pal', 'companion', 'mate',
+    'family', 'relative', 'parent', 'sibling', 'spouse', 'partner', 'significant',
+    'colleague', 'coworker', 'teammate', 'classmate', 'neighbor', 'community',
+    'group', 'circle', 'network', 'connections', 'relationships', 'bonds',
+    'belong', 'belonging', 'member', 'part of', 'included', 'welcome',
+    'alone', 'lonely', 'isolated', 'disconnected', 'alienated', 'excluded'
+  ],
+} as const
+
+// === AUTHENTICITY ===
+export const AUTHENTICITY = {
+  genuine_expression: [
+    'honest', 'honestly', 'truthful', 'truth', 'sincere', 'sincerely', 'genuine',
+    'real', 'really', 'truly', 'actually', 'authentic', 'authentically',
+    'myself', 'true self', 'real me', 'who i am', 'be myself', 'express myself',
+    'open', 'transparent', 'candid', 'frank', 'direct', 'straightforward',
+    'vulnerable', 'vulnerability', 'raw', 'unfiltered', 'uncensored', 'unedited',
+    'admit', 'confess', 'acknowledge', 'reveal', 'disclose', 'share',
+    'feel', 'feeling', 'emotion', 'emotional', 'heart', 'soul', 'gut'
+  ],
+  self_awareness: [
+    'aware', 'awareness', 'conscious', 'consciousness', 'mindful', 'mindfulness',
+    'reflect', 'reflection', 'introspect', 'introspection', 'examine', 'self-examine',
+    'understand myself', 'know myself', 'self-knowledge', 'self-understanding',
+    'recognize', 'realize', 'discover', 'learn about myself', 'insight',
+    'strength', 'weakness', 'flaw', 'limitation', 'growth area', 'blind spot',
+    'pattern', 'tendency', 'habit', 'behavior', 'reaction', 'trigger',
+    'values', 'beliefs', 'principles', 'priorities', 'motivations', 'drives'
+  ],
+  authentic_behavior: [
+    'integrity', 'consistent', 'consistency', 'congruent', 'congruence', 'aligned',
+    'walk the talk', 'practice what preach', 'mean what say', 'true to',
+    'stand by', 'stand for', 'believe in', 'value', 'principle', 'conviction',
+    'choose', 'decision', 'intentional', 'deliberate', 'purposeful', 'meaningful',
+    'boundaries', 'limits', 'say no', 'decline', 'refuse', 'assert', 'assertion',
+    'own', 'ownership', 'responsible', 'accountability', 'admit mistake',
+    'genuine interest', 'real concern', 'truly care', 'actually want'
+  ],
+  inauthenticity: [
+    'fake', 'pretend', 'act', 'acting', 'perform', 'performance', 'mask',
+    'hide', 'conceal', 'suppress', 'repress', 'deny', 'avoid', 'evade',
+    'lie', 'lying', 'deceive', 'deception', 'mislead', 'misrepresent',
+    'conform', 'fit in', 'please others', 'approval', 'validation seeking',
+    'should', 'supposed to', 'have to', 'must', 'expected', 'obligation',
+    'image', 'appearance', 'perception', 'reputation', 'what others think',
+    'compromise myself', 'betray myself', 'sell out', 'give up', 'abandon'
+  ],
+} as const
+
+// === EMPATHY ===
+export const EMPATHY = {
+  cognitive_empathy: [
+    'understand', 'understanding', 'comprehend', 'grasp', 'get', 'see',
+    'perspective', 'viewpoint', 'point of view', 'standpoint', 'position',
+    'imagine', 'picture', 'envision', 'put myself in', 'walk in shoes',
+    'consider', 'think about', 'reflect on', 'ponder', 'contemplate',
+    'recognize', 'identify', 'notice', 'observe', 'perceive', 'detect',
+    'reason', 'logic', 'rationale', 'motivation', 'intention', 'purpose',
+    'why', 'how', 'what', 'situation', 'circumstance', 'context', 'background'
+  ],
+  affective_empathy: [
+    'feel', 'feeling', 'felt', 'emotion', 'emotional', 'moved', 'touched',
+    'share', 'shared', 'sharing', 'resonate', 'connect', 'connection',
+    'sympathy', 'sympathize', 'compassion', 'compassionate', 'pity', 'sorrow',
+    'sad', 'sadness', 'hurt', 'pain', 'suffer', 'suffering', 'ache', 'heart',
+    'happy for', 'joy', 'excited', 'thrilled', 'proud', 'glad', 'pleased',
+    'worried', 'concerned', 'anxious', 'afraid', 'scared', 'frightened',
+    'angry', 'frustrated', 'upset', 'disappointed', 'devastated', 'heartbroken'
+  ],
+  behavioral_empathy: [
+    'help', 'helping', 'helped', 'assist', 'support', 'aid', 'comfort',
+    'listen', 'listening', 'hear', 'attend', 'attention', 'present', 'there',
+    'respond', 'react', 'act', 'action', 'do', 'did', 'done', 'step in',
+    'reach out', 'check on', 'follow up', 'call', 'text', 'message', 'visit',
+    'give', 'offer', 'provide', 'share', 'donate', 'contribute', 'volunteer',
+    'care', 'caring', 'tend', 'nurture', 'protect', 'defend', 'advocate',
+    'kind', 'kindness', 'gentle', 'patient', 'understanding', 'accepting'
+  ],
+  empathy_barriers: [
+    'judge', 'judging', 'judgmental', 'criticize', 'criticism', 'condemn',
+    'dismiss', 'ignore', 'overlook', 'disregard', 'minimize', 'invalidate',
+    'blame', 'fault', 'accuse', 'attack', 'defend', 'defensive', 'justify',
+    'assume', 'assumption', 'presume', 'stereotype', 'generalize', 'label',
+    'interrupt', 'cut off', 'talk over', 'not listen', 'tune out', 'zone out',
+    'self-centered', 'selfish', 'narcissistic', 'apathetic', 'indifferent',
+    'cold', 'distant', 'detached', 'disconnected', 'unavailable', 'closed'
+  ],
+} as const
+
 // === ARTICLES & PREPOSITIONS (for Analytical Thinking) ===
 export const FUNCTION_WORDS = {
   articles: ['a', 'an', 'the'],
@@ -719,6 +972,14 @@ export const LIWC_DICTIONARIES = {
   sensory: SENSORY,
   aesthetic: AESTHETIC,
   function_words: FUNCTION_WORDS,
+  // New dictionaries for full 39-domain coverage
+  dark_triad: DARK_TRIAD,
+  love_languages: LOVE_LANGUAGES,
+  locus_of_control: LOCUS_OF_CONTROL,
+  life_satisfaction: LIFE_SATISFACTION,
+  social_support: SOCIAL_SUPPORT,
+  authenticity: AUTHENTICITY,
+  empathy: EMPATHY,
 } as const
 
 export type LIWCCategory = keyof typeof LIWC_DICTIONARIES

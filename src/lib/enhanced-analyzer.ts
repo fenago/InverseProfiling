@@ -27,6 +27,14 @@ import {
   SENSORY,
   AESTHETIC,
   FUNCTION_WORDS,
+  // New dictionaries for full 39-domain coverage
+  DARK_TRIAD,
+  LOVE_LANGUAGES,
+  LOCUS_OF_CONTROL,
+  LIFE_SATISFACTION,
+  SOCIAL_SUPPORT,
+  AUTHENTICITY,
+  EMPATHY,
 } from './liwc-dictionaries'
 
 import {
@@ -39,6 +47,7 @@ import {
   calculateDomainConfidence,
   recordDomainHistory as _recordDomainHistory,
   getDomainScores,
+  getDomainScoresFromHybridSignals,
   getFeatureCounts,
   saveDatabase,
   getDb as _getDb,
@@ -241,6 +250,28 @@ function extractAllFeatures(words: string[]): FeaturesWithMatches {
 
   // Function Words
   extractCategoryFeatures(words, 'function_words', FUNCTION_WORDS, counts, matchedWords)
+
+  // New dictionaries for full 39-domain coverage
+  // Dark Triad
+  extractCategoryFeatures(words, 'dark_triad', DARK_TRIAD, counts, matchedWords)
+
+  // Love Languages
+  extractCategoryFeatures(words, 'love_languages', LOVE_LANGUAGES, counts, matchedWords)
+
+  // Locus of Control
+  extractCategoryFeatures(words, 'locus_of_control', LOCUS_OF_CONTROL, counts, matchedWords)
+
+  // Life Satisfaction
+  extractCategoryFeatures(words, 'life_satisfaction', LIFE_SATISFACTION, counts, matchedWords)
+
+  // Social Support
+  extractCategoryFeatures(words, 'social_support', SOCIAL_SUPPORT, counts, matchedWords)
+
+  // Authenticity
+  extractCategoryFeatures(words, 'authenticity', AUTHENTICITY, counts, matchedWords)
+
+  // Empathy
+  extractCategoryFeatures(words, 'empathy', EMPATHY, counts, matchedWords)
 
   return { counts, matchedWords }
 }
@@ -1323,6 +1354,246 @@ function computeAestheticPreferences(
   }
 }
 
+// ==================== NEW DOMAIN COMPUTATIONS (39-Domain Coverage) ====================
+
+function computeDarkTriad(
+  features: Record<string, Record<string, number>>,
+  wordCount: number
+): DomainComputationResult {
+  if (wordCount === 0) {
+    return { score: 0.5, rawScore: 0, dataPointsCount: 0, confidenceFactors: { dataVolume: 0, consistency: 0 } }
+  }
+
+  // Dark Triad markers from dedicated dictionary
+  const narcissism = features.dark_triad?.narcissism || 0
+  const machiavellianism = features.dark_triad?.machiavellianism || 0
+  const psychopathy = features.dark_triad?.psychopathy || 0
+
+  const total = narcissism + machiavellianism + psychopathy
+
+  if (total === 0) {
+    return { score: 0.5, rawScore: 0, dataPointsCount: 0, confidenceFactors: { dataVolume: 0, consistency: 0 } }
+  }
+
+  // Higher score = higher dark triad traits
+  const rawScore = (total / wordCount) * 100
+
+  return {
+    score: Math.min(1, Math.max(0, rawScore / 4)),
+    rawScore,
+    dataPointsCount: Math.ceil(total),
+    confidenceFactors: {
+      dataVolume: Math.min(1, total / 8),
+      consistency: 0.4, // Lower confidence due to sensitivity
+    },
+  }
+}
+
+function computeLoveLanguages(
+  features: Record<string, Record<string, number>>,
+  wordCount: number
+): DomainComputationResult {
+  if (wordCount === 0) {
+    return { score: 0.5, rawScore: 0, dataPointsCount: 0, confidenceFactors: { dataVolume: 0, consistency: 0 } }
+  }
+
+  // Love Languages markers
+  const wordsAffirmation = features.love_languages?.words_of_affirmation || 0
+  const qualityTime = features.love_languages?.quality_time || 0
+  const gifts = features.love_languages?.gifts || 0
+  const actsService = features.love_languages?.acts_of_service || 0
+  const physicalTouch = features.love_languages?.physical_touch || 0
+
+  const total = wordsAffirmation + qualityTime + gifts + actsService + physicalTouch
+
+  if (total === 0) {
+    return { score: 0.5, rawScore: 0, dataPointsCount: 0, confidenceFactors: { dataVolume: 0, consistency: 0 } }
+  }
+
+  // Score represents expressiveness of love language (0-1)
+  const rawScore = (total / wordCount) * 100
+
+  return {
+    score: Math.min(1, Math.max(0, rawScore / 5)),
+    rawScore,
+    dataPointsCount: Math.ceil(total),
+    confidenceFactors: {
+      dataVolume: Math.min(1, total / 10),
+      consistency: 0.5,
+    },
+  }
+}
+
+function computeLocusOfControl(
+  features: Record<string, Record<string, number>>,
+  wordCount: number
+): DomainComputationResult {
+  if (wordCount === 0) {
+    return { score: 0.5, rawScore: 0, dataPointsCount: 0, confidenceFactors: { dataVolume: 0, consistency: 0 } }
+  }
+
+  // Locus of Control markers
+  const internal = features.locus_of_control?.internal || 0
+  const external = features.locus_of_control?.external || 0
+
+  const total = internal + external
+
+  if (total === 0) {
+    return { score: 0.5, rawScore: 0, dataPointsCount: 0, confidenceFactors: { dataVolume: 0, consistency: 0 } }
+  }
+
+  // 0 = external locus, 1 = internal locus
+  const rawScore = (internal - external) / total
+
+  return {
+    score: Math.min(1, Math.max(0, 0.5 + rawScore * 0.5)),
+    rawScore,
+    dataPointsCount: Math.ceil(total),
+    confidenceFactors: {
+      dataVolume: Math.min(1, total / 8),
+      consistency: 0.5,
+    },
+  }
+}
+
+function computeLifeSatisfaction(
+  features: Record<string, Record<string, number>>,
+  wordCount: number
+): DomainComputationResult {
+  if (wordCount === 0) {
+    return { score: 0.5, rawScore: 0, dataPointsCount: 0, confidenceFactors: { dataVolume: 0, consistency: 0 } }
+  }
+
+  // Life Satisfaction markers
+  const positive = features.life_satisfaction?.positive_life || 0
+  const negative = features.life_satisfaction?.negative_life || 0
+  const wellbeing = features.life_satisfaction?.wellbeing_indicators || 0
+
+  const total = positive + negative + wellbeing
+
+  if (total === 0) {
+    return { score: 0.5, rawScore: 0, dataPointsCount: 0, confidenceFactors: { dataVolume: 0, consistency: 0 } }
+  }
+
+  // Higher positive + wellbeing, lower negative = higher satisfaction
+  const rawScore = (positive + wellbeing - negative) / total
+
+  return {
+    score: Math.min(1, Math.max(0, 0.5 + rawScore * 0.4)),
+    rawScore,
+    dataPointsCount: Math.ceil(total),
+    confidenceFactors: {
+      dataVolume: Math.min(1, total / 8),
+      consistency: 0.5,
+    },
+  }
+}
+
+function computeSocialSupportScore(
+  features: Record<string, Record<string, number>>,
+  wordCount: number
+): DomainComputationResult {
+  if (wordCount === 0) {
+    return { score: 0.5, rawScore: 0, dataPointsCount: 0, confidenceFactors: { dataVolume: 0, consistency: 0 } }
+  }
+
+  // Social Support markers
+  const emotional = features.social_support?.emotional_support || 0
+  const instrumental = features.social_support?.instrumental_support || 0
+  const informational = features.social_support?.informational_support || 0
+  const network = features.social_support?.network_indicators || 0
+
+  const total = emotional + instrumental + informational + network
+
+  if (total === 0) {
+    return { score: 0.5, rawScore: 0, dataPointsCount: 0, confidenceFactors: { dataVolume: 0, consistency: 0 } }
+  }
+
+  const rawScore = (total / wordCount) * 100
+
+  return {
+    score: Math.min(1, Math.max(0, rawScore / 5)),
+    rawScore,
+    dataPointsCount: Math.ceil(total),
+    confidenceFactors: {
+      dataVolume: Math.min(1, total / 10),
+      consistency: 0.5,
+    },
+  }
+}
+
+function computeAuthenticityScore(
+  features: Record<string, Record<string, number>>,
+  wordCount: number
+): DomainComputationResult {
+  if (wordCount === 0) {
+    return { score: 0.5, rawScore: 0, dataPointsCount: 0, confidenceFactors: { dataVolume: 0, consistency: 0 } }
+  }
+
+  // Authenticity markers
+  const genuine = features.authenticity?.genuine_expression || 0
+  const selfAware = features.authenticity?.self_awareness || 0
+  const authentic = features.authenticity?.authentic_behavior || 0
+  const inauthentic = features.authenticity?.inauthenticity || 0
+
+  const positive = genuine + selfAware + authentic
+  const negative = inauthentic
+  const total = positive + negative
+
+  if (total === 0) {
+    return { score: 0.5, rawScore: 0, dataPointsCount: 0, confidenceFactors: { dataVolume: 0, consistency: 0 } }
+  }
+
+  // Higher authentic, lower inauthentic = higher authenticity score
+  const rawScore = (positive - negative * 0.5) / total
+
+  return {
+    score: Math.min(1, Math.max(0, 0.5 + rawScore * 0.4)),
+    rawScore,
+    dataPointsCount: Math.ceil(total),
+    confidenceFactors: {
+      dataVolume: Math.min(1, total / 8),
+      consistency: 0.5,
+    },
+  }
+}
+
+function computeEmpathyScore(
+  features: Record<string, Record<string, number>>,
+  wordCount: number
+): DomainComputationResult {
+  if (wordCount === 0) {
+    return { score: 0.5, rawScore: 0, dataPointsCount: 0, confidenceFactors: { dataVolume: 0, consistency: 0 } }
+  }
+
+  // Empathy markers
+  const cognitive = features.empathy?.cognitive_empathy || 0
+  const affective = features.empathy?.affective_empathy || 0
+  const behavioral = features.empathy?.behavioral_empathy || 0
+  const barriers = features.empathy?.empathy_barriers || 0
+
+  const positive = cognitive + affective + behavioral
+  const negative = barriers
+  const total = positive + negative
+
+  if (total === 0) {
+    return { score: 0.5, rawScore: 0, dataPointsCount: 0, confidenceFactors: { dataVolume: 0, consistency: 0 } }
+  }
+
+  // Higher empathy markers, lower barriers = higher empathy score
+  const rawScore = (positive - negative * 0.5) / total
+
+  return {
+    score: Math.min(1, Math.max(0, 0.5 + rawScore * 0.4)),
+    rawScore,
+    dataPointsCount: Math.ceil(total),
+    confidenceFactors: {
+      dataVolume: Math.min(1, total / 10),
+      consistency: 0.5,
+    },
+  }
+}
+
 // ==================== STORE ANALYSIS RESULTS ====================
 
 export async function analyzeAndStoreEnhanced(
@@ -1543,6 +1814,43 @@ async function computeAndStoreDomainScores(
   await updateDomainScore('aesthetic_preferences', aestheticPreferences.score, aestheticPreferences.rawScore, aestheticPreferences.dataPointsCount)
   await updateConfidenceFactor('aesthetic_preferences', 'data_volume', aestheticPreferences.confidenceFactors.dataVolume)
 
+  // === NEW DOMAINS (39-Domain Coverage) ===
+
+  // Dark Triad
+  const darkTriad = computeDarkTriad(features, wordCount)
+  await updateDomainScore('dark_triad', darkTriad.score, darkTriad.rawScore, darkTriad.dataPointsCount)
+  await updateConfidenceFactor('dark_triad', 'data_volume', darkTriad.confidenceFactors.dataVolume)
+
+  // Love Languages
+  const loveLanguages = computeLoveLanguages(features, wordCount)
+  await updateDomainScore('love_languages', loveLanguages.score, loveLanguages.rawScore, loveLanguages.dataPointsCount)
+  await updateConfidenceFactor('love_languages', 'data_volume', loveLanguages.confidenceFactors.dataVolume)
+
+  // Locus of Control
+  const locusOfControl = computeLocusOfControl(features, wordCount)
+  await updateDomainScore('locus_of_control', locusOfControl.score, locusOfControl.rawScore, locusOfControl.dataPointsCount)
+  await updateConfidenceFactor('locus_of_control', 'data_volume', locusOfControl.confidenceFactors.dataVolume)
+
+  // Life Satisfaction
+  const lifeSatisfaction = computeLifeSatisfaction(features, wordCount)
+  await updateDomainScore('life_satisfaction', lifeSatisfaction.score, lifeSatisfaction.rawScore, lifeSatisfaction.dataPointsCount)
+  await updateConfidenceFactor('life_satisfaction', 'data_volume', lifeSatisfaction.confidenceFactors.dataVolume)
+
+  // Social Support
+  const socialSupport = computeSocialSupportScore(features, wordCount)
+  await updateDomainScore('social_support', socialSupport.score, socialSupport.rawScore, socialSupport.dataPointsCount)
+  await updateConfidenceFactor('social_support', 'data_volume', socialSupport.confidenceFactors.dataVolume)
+
+  // Authenticity
+  const authenticityDomain = computeAuthenticityScore(features, wordCount)
+  await updateDomainScore('authenticity', authenticityDomain.score, authenticityDomain.rawScore, authenticityDomain.dataPointsCount)
+  await updateConfidenceFactor('authenticity', 'data_volume', authenticityDomain.confidenceFactors.dataVolume)
+
+  // Empathy
+  const empathy = computeEmpathyScore(features, wordCount)
+  await updateDomainScore('empathy', empathy.score, empathy.rawScore, empathy.dataPointsCount)
+  await updateConfidenceFactor('empathy', 'data_volume', empathy.confidenceFactors.dataVolume)
+
   // Calculate final confidence for each domain
   await calculateDomainConfidence('big_five_openness')
   await calculateDomainConfidence('big_five_conscientiousness')
@@ -1570,16 +1878,111 @@ async function computeAndStoreDomainScores(
   await calculateDomainConfidence('work_career_style')
   await calculateDomainConfidence('sensory_processing')
   await calculateDomainConfidence('aesthetic_preferences')
+  // New domains (39-domain coverage)
+  await calculateDomainConfidence('dark_triad')
+  await calculateDomainConfidence('love_languages')
+  await calculateDomainConfidence('locus_of_control')
+  await calculateDomainConfidence('life_satisfaction')
+  await calculateDomainConfidence('social_support')
+  await calculateDomainConfidence('authenticity')
+  await calculateDomainConfidence('empathy')
+}
+
+// ==================== RAW LIWC SCORE COMPUTATION (for Hybrid Aggregator) ====================
+
+/**
+ * Compute raw LIWC domain scores without storing to database
+ * Used by the hybrid aggregator to get LIWC signal for combination with other signals
+ *
+ * Returns scores for all 39 PRD domains from Fine-Tuned-Psychometrics.md
+ */
+export function computeLIWCDomainScores(text: string): Record<string, number> {
+  const analysis = analyzeTextEnhanced(text)
+  const { features, wordCount, vocabularyRichness, avgWordsPerSentence } = analysis
+
+  const scores: Record<string, number> = {}
+
+  // Category A: Core Personality (Domains 1-5) - Big Five
+  scores.big_five_openness = computeBigFiveOpenness(features, wordCount, vocabularyRichness).score
+  scores.big_five_conscientiousness = computeBigFiveConscientiousness(features, wordCount).score
+  scores.big_five_extraversion = computeBigFiveExtraversion(features, wordCount).score
+  scores.big_five_agreeableness = computeBigFiveAgreeableness(features, wordCount).score
+  scores.big_five_neuroticism = computeBigFiveNeuroticism(features, wordCount).score
+
+  // Category B: Dark Personality (Domains 6-8)
+  const darkTriadScore = computeDarkTriad(features, wordCount).score
+  scores.dark_triad_narcissism = darkTriadScore
+  scores.dark_triad_machiavellianism = darkTriadScore
+  scores.dark_triad_psychopathy = darkTriadScore
+
+  // Category C: Emotional/Social Intelligence (Domains 9-13)
+  scores.emotional_empathy = computeEmpathyScore(features, wordCount).score
+  scores.emotional_intelligence = computeEmotionalIntelligence(features, wordCount).score
+  scores.attachment_style = computeAttachmentStyle(features, wordCount).score
+  scores.love_languages = computeLoveLanguages(features, wordCount).score
+  scores.communication_style = computeCommunicationStyles(features, wordCount, avgWordsPerSentence).score
+
+  // Category D: Decision Making & Motivation (Domains 14-20)
+  scores.risk_tolerance = computeDecisionMaking(features, wordCount).score // DOSPERT approximation
+  scores.decision_style = computeDecisionMaking(features, wordCount).score
+  scores.time_orientation = computeTimePerspective(features, wordCount).score
+  scores.achievement_motivation = computeValuesMotivations(features, wordCount).score
+  scores.self_efficacy = computeResilienceCoping(features, wordCount).score
+  scores.locus_of_control = computeLocusOfControl(features, wordCount).score
+  scores.growth_mindset = computeGrowthMindset(features, wordCount).score
+
+  // Category E: Values & Wellbeing (Domains 21-26)
+  scores.personal_values = computeValuesMotivations(features, wordCount).score // Schwartz PVQ
+  scores.interests = computeWorkCareerStyle(features, wordCount).score // RIASEC approximation
+  scores.life_satisfaction = computeLifeSatisfaction(features, wordCount).score
+  scores.stress_coping = computeResilienceCoping(features, wordCount).score
+  scores.social_support = computeSocialSupportScore(features, wordCount).score
+  scores.authenticity = computeAuthenticityScore(features, wordCount).score
+
+  // Category F: Cognitive/Learning (Domains 27-32)
+  scores.cognitive_abilities = computeCognitiveAbilities(features, wordCount, vocabularyRichness).score
+  scores.creativity = computeCreativity(features, wordCount, vocabularyRichness).score
+  scores.learning_styles = computeLearningStyles(features, wordCount).score
+  scores.information_processing = computeInformationProcessing(features, wordCount, avgWordsPerSentence).score
+  scores.metacognition = computeMetacognition(features, wordCount).score
+  scores.executive_functions = computeExecutiveFunctions(features, wordCount).score
+
+  // Category G: Social/Cultural/Values (Domains 33-37)
+  scores.social_cognition = computeSocialCognition(features, wordCount).score
+  scores.political_ideology = computePoliticalIdeology(features, wordCount).score
+  scores.cultural_values = computeCulturalValues(features, wordCount).score
+  scores.moral_reasoning = computeMoralReasoning(features, wordCount).score
+  scores.work_career_style = computeWorkCareerStyle(features, wordCount).score
+
+  // Category H: Sensory/Aesthetic (Domains 38-39)
+  scores.sensory_processing = computeSensoryProcessing(features, wordCount).score
+  scores.aesthetic_preferences = computeAestheticPreferences(features, wordCount, vocabularyRichness).score
+
+  return scores
+}
+
+/**
+ * Get analysis result with raw scores (no storage side effects)
+ * Useful for getting both features and scores without database operations
+ */
+export function analyzeTextWithScores(text: string): {
+  analysis: EnhancedAnalysisResult
+  scores: Record<string, number>
+} {
+  const analysis = analyzeTextEnhanced(text)
+  const scores = computeLIWCDomainScores(text)
+  return { analysis, scores }
 }
 
 // ==================== AGGREGATE FUNCTIONS ====================
 
 export async function getEnhancedProfileSummary(): Promise<{
-  domainScores: Awaited<ReturnType<typeof getDomainScores>>
+  domainScores: Awaited<ReturnType<typeof getDomainScoresFromHybridSignals>>
   topFeatures: Awaited<ReturnType<typeof getFeatureCounts>>
   summaryVariables: LIWCSummaryVariables | null
 }> {
-  const domainScores = await getDomainScores()
+  // Use hybrid signals (LIWC + Embedding + LLM) instead of legacy domain_scores table
+  const domainScores = await getDomainScoresFromHybridSignals()
   const allFeatures = await getFeatureCounts()
 
   // Get top 20 features by percentage

@@ -1,9 +1,9 @@
 # Product Requirements Document
 ## Privacy-Preserving Digital Twin: Inverse Profiling System
 
-**Version:** 1.1
+**Version:** 1.2
 **Date:** December 2024
-**Status:** Phase 1 Complete
+**Status:** Phase 1 Complete, Hybrid Analysis Implemented
 
 ---
 
@@ -310,16 +310,59 @@ An AI chat interface that adapts its communication style based on the user's psy
 
 ---
 
-#### F2: Inverse Profiling Engine
+#### F2: Inverse Profiling Engine (Hybrid Three-Signal Architecture)
 **Priority:** P0 (Must Have)
 
-Automated system that infers psychological traits from natural interaction without explicit testing.
+Automated system that infers psychological traits from natural interaction without explicit testing, using a **hybrid three-signal approach** that combines rule-based and machine learning methods.
+
+**Hybrid Signal Architecture:**
+
+```
+User Message
+     │
+     ├──▶ [LIWC Analysis] ────────────▶ Rule-based word matching (20% weight)
+     │         Fast, immediate baseline
+     │
+     ├──▶ [Embedding Similarity] ─────▶ Neural network semantics (30% weight)
+     │         BGE-small-en compares to trait prototypes
+     │
+     └──▶ [LLM Deep Analysis] ────────▶ Full semantic understanding (50% weight)
+               Gemma 3n batch processing every N messages
+                              │
+                              ▼
+                    [Hybrid Aggregator]
+                              │
+                              ▼
+                    Final Domain Scores (39 domains)
+```
+
+**Three Signal Types:**
+
+| Signal | Type | Weight | Speed | Accuracy |
+|--------|------|--------|-------|----------|
+| **LIWC** | Rule-based | 20% | Instant | Low-Medium |
+| **Embeddings** | ML (BGE-small-en) | 30% | Fast | Medium-High |
+| **LLM** | ML (Gemma 3n) | 50% | Batched | High |
+
+**How It Works:**
+1. **LIWC (Immediate)**: Word dictionary matching provides instant baseline scores
+2. **Embeddings (Real-time)**: Neural network computes semantic similarity between user text and pre-defined trait prototype sentences
+3. **LLM (Batched)**: Every 5 messages (or 5-minute timeout), Gemma 3n performs deep semantic analysis with structured JSON output
+
+**Key Files:**
+- `src/lib/enhanced-analyzer.ts` - LIWC analysis
+- `src/lib/trait-prototypes.ts` - Embedding prototypes for 39 domains
+- `src/lib/llm-deep-analyzer.ts` - LLM batch analysis
+- `src/lib/hybrid-aggregator.ts` - Signal combination logic
+- `src/lib/analysis-config.ts` - Weights and configuration
 
 **Capabilities:**
-- Analyzes linguistic patterns (LIWC-style)
-- Processes audio for prosodic features (optional)
-- Builds confidence-weighted trait scores
+- Analyzes linguistic patterns (LIWC-style) - immediate
+- Computes semantic similarity to trait prototypes - real-time ML
+- Deep semantic analysis via local LLM - batch processed ML
+- Builds confidence-weighted trait scores across 39 psychological domains
 - Continuously refines profile with new data
+- Processes audio for prosodic features (optional, future)
 
 **User Story:**
 > As a user, I want the AI to understand my personality and preferences automatically, so I don't have to take lengthy questionnaires.
@@ -425,16 +468,21 @@ Complete user control over all stored data and profile information.
 | PM-05 | System shall track profile evolution over time | P1 |
 | PM-06 | System shall allow manual trait adjustments | P2 |
 
-### 6.4 Inverse Profiling
+### 6.4 Inverse Profiling (Hybrid Three-Signal System)
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| IP-01 | System shall extract LIWC-style linguistic features from text | P0 |
-| IP-02 | System shall infer Big Five personality traits from language | P0 |
-| IP-03 | System shall detect cognitive style markers | P0 |
-| IP-04 | System shall identify emotional state indicators | P1 |
-| IP-05 | System shall analyze prosodic features from audio | P2 |
-| IP-06 | System shall compute confidence based on data volume | P0 |
+| ID | Requirement | Priority | Status |
+|----|-------------|----------|--------|
+| IP-01 | System shall extract LIWC-style linguistic features from text | P0 | ✅ |
+| IP-02 | System shall infer Big Five personality traits from language | P0 | ✅ |
+| IP-03 | System shall detect cognitive style markers | P0 | ✅ |
+| IP-04 | System shall identify emotional state indicators | P1 | ✅ |
+| IP-05 | System shall analyze prosodic features from audio | P2 | Planned |
+| IP-06 | System shall compute confidence based on data volume | P0 | ✅ |
+| IP-07 | System shall compute embedding similarity to trait prototypes (ML) | P0 | ✅ |
+| IP-08 | System shall perform LLM deep analysis in batches (ML) | P0 | ✅ |
+| IP-09 | System shall aggregate multiple signals with configurable weights | P0 | ✅ |
+| IP-10 | System shall support 39 psychological domains | P0 | ✅ |
+| IP-11 | System shall gracefully degrade when ML signals unavailable | P0 | ✅ |
 
 ### 6.5 Adaptive Responses
 
@@ -521,9 +569,10 @@ Complete user control over all stored data and profile information.
 | Layer | Technology | Justification |
 |-------|------------|---------------|
 | **Frontend** | React 19 | Modern concurrent rendering, hooks ecosystem |
-| **LLM Runtime** | WebLLM | GPU-accelerated browser LLM inference |
+| **LLM Runtime** | MediaPipe LLM Inference | GPU-accelerated browser LLM inference |
 | **Base Model** | Gemma 3n | Optimized for on-device inference (E4B/E2B/270M variants) |
-| **Embeddings** | Transformers.js | Browser-native embedding generation |
+| **Embeddings** | Transformers.js v3 | Browser-native embedding generation |
+| **Embedding Model** | BGE-small-en (q8) | Quantized semantic similarity model |
 | **ML Framework** | TensorFlow.js | Psychometric model inference |
 | **Vector DB** | TinkerBird | Browser-native vector search |
 | **Graph DB** | LevelGraph | Relationship modeling |
@@ -838,6 +887,44 @@ All interactions must track:
 - Six data stores: messages, linguisticAnalyses, personalityTraits, userProfile, activityLogs, sessions
 - Data Inspector allows viewing raw JSON contents of any data store
 
+---
+
+### Phase 1.5: Hybrid Analysis ✅ COMPLETE
+**Goal:** Three-signal ML-enhanced psychometric profiling
+**Status:** Completed December 2024
+
+- [x] **LIWC Signal (Rule-based)** - Fast word dictionary matching for 39 psychological domains
+- [x] **Embedding Signal (ML)** - BGE-small-en semantic similarity to trait prototypes
+- [x] **LLM Signal (ML)** - Gemma 3n deep analysis with batch processing
+- [x] **Hybrid Aggregator** - Weighted signal combination (20% LIWC, 30% Embedding, 50% LLM)
+- [x] **Trait Prototypes** - Pre-computed prototype embeddings for all 39 domains
+- [x] **Configurable Weights** - Analysis config for adjusting signal priorities
+- [x] **Graceful Degradation** - Falls back to available signals when ML unavailable
+- [x] **Database Migrations** - Auto-migrate existing databases to new schema
+
+**Exit Criteria:** ✅ 80% of analysis comes from ML (embeddings + LLM) when available
+
+**Key Files:**
+- `src/lib/analysis-config.ts` - Configuration constants and 39 domain definitions
+- `src/lib/trait-prototypes.ts` - Prototype texts and embedding computation
+- `src/lib/llm-deep-analyzer.ts` - LLM batch analysis service
+- `src/lib/hybrid-aggregator.ts` - Signal combination logic
+- `src/lib/enhanced-analyzer.ts` - LIWC analysis + raw score export
+
+**Technical Architecture:**
+```
+User Message
+     │
+     ├──▶ LIWC (20%) ────▶ Immediate word matching
+     │
+     ├──▶ Embeddings (30%) ──▶ BGE-small-en cosine similarity
+     │
+     └──▶ LLM (50%) ─────▶ Gemma 3n batch (every 5 msgs / 5 min timeout)
+                │
+                ▼
+          Hybrid Aggregator → Final Scores
+```
+
 ### Phase 2: Enhanced Profiling (Months 4-6)
 **Goal:** Full 22-domain profiling with confidence scoring
 
@@ -880,31 +967,62 @@ All interactions must track:
 
 ## 14. Appendices
 
-### Appendix A: 22 Psychological Domains
+### Appendix A: 39 Psychological Domains (Hybrid Analysis)
 
-1. Personality Traits (Big Five)
-2. Cognitive Abilities
-3. Emotional Intelligence
-4. Values & Motivations
-5. Moral Reasoning
-6. Decision-Making Styles
-7. Creativity
-8. Attachment & Relationships
-9. Learning Styles
-10. Information Processing
-11. Metacognition
-12. Executive Functions
-13. Communication Styles
-14. Social Cognition
-15. Resilience & Coping
-16. Mindset (Growth/Fixed)
-17. Psychopathology Indicators
-18. Political Ideology
-19. Cultural Values
-20. Work & Career Style
-21. Sensory Processing
-22. Time Perspective
-23. Aesthetic Preferences
+**Big Five Personality (5 domains)**
+1. `big_five_openness` - Openness to Experience
+2. `big_five_conscientiousness` - Conscientiousness
+3. `big_five_extraversion` - Extraversion
+4. `big_five_agreeableness` - Agreeableness
+5. `big_five_neuroticism` - Neuroticism
+
+**Schwartz Values (10 domains)**
+6. `values_self_direction` - Self-Direction
+7. `values_stimulation` - Stimulation
+8. `values_hedonism` - Hedonism
+9. `values_achievement` - Achievement
+10. `values_power` - Power
+11. `values_security` - Security
+12. `values_conformity` - Conformity
+13. `values_tradition` - Tradition
+14. `values_benevolence` - Benevolence
+15. `values_universalism` - Universalism
+
+**Cognitive Styles (4 domains)**
+16. `cognitive_analytical` - Analytical Thinking
+17. `cognitive_intuitive` - Intuitive Thinking
+18. `cognitive_creative` - Creative Thinking
+19. `cognitive_practical` - Practical Thinking
+
+**Emotional (3 domains)**
+20. `emotional_expression` - Emotional Expression
+21. `emotional_regulation` - Emotional Regulation
+22. `emotional_sensitivity` - Emotional Sensitivity
+
+**Social Orientation (3 domains)**
+23. `social_dominance` - Social Dominance
+24. `social_affiliation` - Social Affiliation
+25. `social_autonomy` - Social Autonomy
+
+**Communication Styles (3 domains)**
+26. `communication_formal` - Formal Communication
+27. `communication_assertive` - Assertive Communication
+28. `communication_empathetic` - Empathetic Communication
+
+**Dark Triad (3 domains)**
+29. `dark_triad_narcissism` - Narcissism
+30. `dark_triad_machiavellianism` - Machiavellianism
+31. `dark_triad_psychopathy` - Psychopathy
+
+**Additional Constructs (8 domains)**
+32. `growth_mindset` - Growth vs Fixed Mindset
+33. `love_languages` - Love Language Preferences
+34. `locus_of_control` - Internal vs External Locus
+35. `life_satisfaction` - Subjective Well-being
+36. `social_support` - Social Support Seeking
+37. `authenticity` - Authentic Self-expression
+38. `empathy` - Empathic Concern
+39. `resilience` - Psychological Resilience
 
 ### Appendix B: Confidence Score Thresholds
 
@@ -930,10 +1048,14 @@ All interactions must track:
 |------|------------|
 | **Digital Twin** | AI representation that mirrors user's psychological profile |
 | **Inverse Profiling** | Inferring psychological traits from behavior without explicit tests |
-| **LIWC** | Linguistic Inquiry and Word Count - text analysis methodology |
+| **Hybrid Analysis** | Three-signal approach combining rule-based LIWC, ML embeddings, and LLM deep analysis |
+| **LIWC** | Linguistic Inquiry and Word Count - rule-based text analysis methodology |
+| **Trait Prototypes** | Pre-defined example sentences representing each psychological domain |
+| **BGE-small-en** | BAAI General Embedding model for semantic similarity computation |
 | **ZPD** | Zone of Proximal Development - optimal learning challenge level |
-| **WebLLM** | Library for running LLMs in browser via WebGPU |
+| **MediaPipe LLM** | Google's library for running LLMs in browser via WebGPU |
 | **Prosodic Analysis** | Analysis of speech patterns (pitch, tone, pace) |
+| **Signal Aggregation** | Weighted combination of multiple analysis signals into final scores |
 
 ---
 
@@ -943,6 +1065,7 @@ All interactions must track:
 |---------|------|--------|---------|
 | 1.0 | December 2024 | Product Team | Initial draft |
 | 1.1 | December 2024 | Development Team | Phase 1 MVP Complete - Added Data Inspector, Model Selector, Activity Dashboard |
+| 1.2 | December 2024 | Development Team | **Hybrid Three-Signal Analysis** - Added ML-based psychometric profiling with embeddings (BGE-small-en) and LLM deep analysis (Gemma 3n), expanded from 22 to 39 psychological domains, added trait prototypes, implemented weighted signal aggregation (20% LIWC, 30% Embeddings, 50% LLM) |
 
 ---
 

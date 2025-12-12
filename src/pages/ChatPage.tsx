@@ -15,7 +15,13 @@ import {
   type AudioInput
 } from '../lib/llm'
 import { analyzeAndStore } from '../lib/analyzer'
-import { analyzeAndStoreEnhanced } from '../lib/enhanced-analyzer'
+import { analyzeAndStoreEnhanced, computeLIWCDomainScores } from '../lib/enhanced-analyzer'
+import {
+  initHybridAnalyzer,
+  analyzeHybrid,
+  checkAndRunTimeoutAnalysis,
+  getAnalysisStatus,
+} from '../lib/hybrid-aggregator'
 import { updatePersonalityProfile } from '../lib/personality'
 import { db, updateProfileStats } from '../lib/db'
 import { FormattedMessage } from '../lib/format-message'
@@ -70,6 +76,30 @@ export default function ChatPage() {
     }
     loadMessages()
   }, [chat.currentSessionId, setMessages])
+
+  // Initialize hybrid analyzer (pre-cache trait prototype embeddings)
+  useEffect(() => {
+    console.log('Initializing hybrid analyzer...')
+    initHybridAnalyzer()
+      .then(() => {
+        const status = getAnalysisStatus()
+        console.log('Hybrid analyzer status:', status)
+      })
+      .catch((error) => console.warn('Hybrid analyzer init failed (non-blocking):', error))
+  }, [])
+
+  // Periodic check for timeout-based LLM batch analysis (every 60 seconds)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      checkAndRunTimeoutAnalysis()
+        .then((ran) => {
+          if (ran) console.log('Timeout-triggered LLM analysis completed')
+        })
+        .catch((error) => console.warn('Timeout LLM analysis failed:', error))
+    }, 60000) // Check every minute
+
+    return () => clearInterval(interval)
+  }, [])
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -364,13 +394,54 @@ export default function ChatPage() {
     )
     console.log('Message saved with ID:', messageId)
 
-    // Analyze user message with enhanced Phase 2 analyzer
+    // Analyze user message with hybrid three-signal analysis pipeline
     // IMPORTANT: Fire-and-forget - don't await to prevent blocking response generation
     // The analysis runs in the background while the LLM generates a response
-    console.log('Starting background analysis...')
+    //
+    // Hybrid analysis combines three signals:
+    // 1. LIWC (fast word matching) - immediate baseline
+    // 2. Embeddings (semantic similarity) - real-time comparison to trait prototypes
+    // 3. LLM (deep analysis) - batch processed every N messages for highest accuracy
+    console.log('Starting background hybrid analysis...')
     Promise.all([
+      // Legacy analyzers (for backwards compatibility)
       analyzeAndStore(messageId, userMessage),
-      analyzeAndStoreEnhanced(messageId, userMessage, undefined, chat.currentSessionId)
+      analyzeAndStoreEnhanced(messageId, userMessage, undefined, chat.currentSessionId),
+
+      // New hybrid analysis pipeline
+      (async () => {
+        try {
+          // Get LIWC scores for hybrid aggregation
+          const liwcScores = computeLIWCDomainScores(userMessage)
+
+          // Run hybrid analysis (LIWC + Embeddings + LLM if triggered)
+          const hybridResult = await analyzeHybrid(
+            messageId,
+            userMessage,
+            liwcScores,
+            chat.currentSessionId
+          )
+
+          console.log('Hybrid analysis result:', {
+            messageId,
+            weightsUsed: hybridResult.weightsUsed,
+            signalsAvailable: {
+              liwc: hybridResult.signals.liwc !== null,
+              embedding: hybridResult.signals.embedding !== null,
+              llm: hybridResult.signals.llm !== null,
+            },
+            topScores: Object.entries(hybridResult.scores)
+              .sort(([, a], [, b]) => b - a)
+              .slice(0, 5)
+              .map(([domain, score]) => `${domain}: ${score.toFixed(2)}`)
+          })
+
+          return hybridResult
+        } catch (error) {
+          console.warn('Hybrid analysis failed:', error)
+          return null
+        }
+      })()
     ])
       .then(() => console.log('Background analysis complete'))
       .catch((analysisError) => console.warn('Background analysis failed (non-blocking):', analysisError))
