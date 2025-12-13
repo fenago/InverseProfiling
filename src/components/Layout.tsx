@@ -1,11 +1,12 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { MessageSquare, User, Activity, Settings, Brain } from 'lucide-react'
+import { MessageSquare, User, Activity, Settings, Brain, Gauge } from 'lucide-react'
 import clsx from 'clsx'
 
 const navItems = [
   { to: '/', icon: MessageSquare, label: 'Chat' },
   { to: '/profile', icon: User, label: 'Profile' },
   { to: '/activity', icon: Activity, label: 'Activity' },
+  { to: '/benchmarks', icon: Gauge, label: 'Benchmarks' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ]
 

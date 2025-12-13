@@ -216,6 +216,133 @@ async function createTables(database: Database): Promise<void> {
     )
   `)
   database.run('CREATE INDEX IF NOT EXISTS idx_hybrid_signal_domain ON hybrid_signal_scores(domain_id)')
+
+  // ==================== PHASE 3: ADAPTIVE LEARNING TABLES ====================
+
+  // === KNOWLEDGE STATES TABLE ===
+  // Tracks user's knowledge level for different concepts/topics
+  database.run(`
+    CREATE TABLE IF NOT EXISTS knowledge_states (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      concept_id TEXT NOT NULL UNIQUE,
+      concept_name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      mastery_level REAL NOT NULL DEFAULT 0.0,
+      zpd_lower REAL NOT NULL DEFAULT 0.0,
+      zpd_upper REAL NOT NULL DEFAULT 0.3,
+      difficulty_rating REAL NOT NULL DEFAULT 0.5,
+      times_practiced INTEGER DEFAULT 0,
+      times_correct INTEGER DEFAULT 0,
+      times_incorrect INTEGER DEFAULT 0,
+      last_practiced TEXT,
+      next_review_due TEXT,
+      easiness_factor REAL DEFAULT 2.5,
+      interval_days REAL DEFAULT 1.0,
+      repetition_number INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )
+  `)
+  database.run('CREATE INDEX IF NOT EXISTS idx_knowledge_states_category ON knowledge_states(category)')
+  database.run('CREATE INDEX IF NOT EXISTS idx_knowledge_states_mastery ON knowledge_states(mastery_level)')
+  database.run('CREATE INDEX IF NOT EXISTS idx_knowledge_states_review ON knowledge_states(next_review_due)')
+
+  // === LEARNING PROGRESS TABLE ===
+  // Tracks progress through learning sessions and milestones
+  database.run(`
+    CREATE TABLE IF NOT EXISTS learning_progress (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      concept_id TEXT NOT NULL,
+      activity_type TEXT NOT NULL,
+      difficulty_attempted REAL NOT NULL,
+      performance_score REAL NOT NULL,
+      time_spent_ms INTEGER DEFAULT 0,
+      scaffolding_level INTEGER DEFAULT 0,
+      hints_used INTEGER DEFAULT 0,
+      attempts INTEGER DEFAULT 1,
+      completed INTEGER DEFAULT 0,
+      started_at TEXT DEFAULT (datetime('now')),
+      completed_at TEXT,
+      FOREIGN KEY (concept_id) REFERENCES knowledge_states(concept_id)
+    )
+  `)
+  database.run('CREATE INDEX IF NOT EXISTS idx_learning_progress_session ON learning_progress(session_id)')
+  database.run('CREATE INDEX IF NOT EXISTS idx_learning_progress_concept ON learning_progress(concept_id)')
+
+  // === KNOWLEDGE GAPS TABLE ===
+  // Identified gaps in user's knowledge
+  database.run(`
+    CREATE TABLE IF NOT EXISTS knowledge_gaps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      concept_id TEXT NOT NULL,
+      gap_type TEXT NOT NULL,
+      severity REAL NOT NULL DEFAULT 0.5,
+      prerequisite_missing TEXT,
+      misconception_detected TEXT,
+      evidence_text TEXT,
+      times_detected INTEGER DEFAULT 1,
+      addressed INTEGER DEFAULT 0,
+      detected_at TEXT DEFAULT (datetime('now')),
+      last_seen TEXT DEFAULT (datetime('now')),
+      addressed_at TEXT,
+      FOREIGN KEY (concept_id) REFERENCES knowledge_states(concept_id)
+    )
+  `)
+  database.run('CREATE INDEX IF NOT EXISTS idx_knowledge_gaps_concept ON knowledge_gaps(concept_id)')
+  database.run('CREATE INDEX IF NOT EXISTS idx_knowledge_gaps_severity ON knowledge_gaps(severity)')
+
+  // === LEARNING EVENTS TABLE ===
+  // Log of all learning interactions for analytics
+  database.run(`
+    CREATE TABLE IF NOT EXISTS learning_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT NOT NULL,
+      concept_id TEXT,
+      event_data TEXT,
+      learning_style_used TEXT,
+      difficulty_level REAL,
+      performance_result REAL,
+      zpd_assessment TEXT,
+      scaffolding_applied TEXT,
+      timestamp TEXT DEFAULT (datetime('now'))
+    )
+  `)
+  database.run('CREATE INDEX IF NOT EXISTS idx_learning_events_type ON learning_events(event_type)')
+  database.run('CREATE INDEX IF NOT EXISTS idx_learning_events_concept ON learning_events(concept_id)')
+  database.run('CREATE INDEX IF NOT EXISTS idx_learning_events_time ON learning_events(timestamp)')
+
+  // === LEARNING PREFERENCES TABLE ===
+  // Stores user's detected and preferred learning styles
+  database.run(`
+    CREATE TABLE IF NOT EXISTS learning_preferences (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      preference_type TEXT NOT NULL UNIQUE,
+      detected_value TEXT,
+      confidence REAL DEFAULT 0.0,
+      user_override TEXT,
+      detection_method TEXT,
+      sample_size INTEGER DEFAULT 0,
+      last_updated TEXT DEFAULT (datetime('now'))
+    )
+  `)
+
+  // === CONCEPT_PREREQUISITES TABLE ===
+  // Stores prerequisite relationships between concepts
+  database.run(`
+    CREATE TABLE IF NOT EXISTS concept_prerequisites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      concept_id TEXT NOT NULL,
+      prerequisite_id TEXT NOT NULL,
+      strength REAL NOT NULL DEFAULT 1.0,
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(concept_id, prerequisite_id),
+      FOREIGN KEY (concept_id) REFERENCES knowledge_states(concept_id),
+      FOREIGN KEY (prerequisite_id) REFERENCES knowledge_states(concept_id)
+    )
+  `)
+  database.run('CREATE INDEX IF NOT EXISTS idx_concept_prereqs_concept ON concept_prerequisites(concept_id)')
+  database.run('CREATE INDEX IF NOT EXISTS idx_concept_prereqs_prereq ON concept_prerequisites(prerequisite_id)')
 }
 
 // Run migrations for existing databases to ensure all tables exist
@@ -347,6 +474,192 @@ async function runMigrations(database: Database): Promise<void> {
   }
 
   console.log('Database migrations completed (39 PRD domains ensured)')
+
+  // ==================== PHASE 3: ADAPTIVE LEARNING TABLES (MIGRATION) ====================
+
+  // === KNOWLEDGE STATES TABLE ===
+  database.run(`
+    CREATE TABLE IF NOT EXISTS knowledge_states (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      concept_id TEXT NOT NULL UNIQUE,
+      concept_name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      mastery_level REAL NOT NULL DEFAULT 0.0,
+      zpd_lower REAL NOT NULL DEFAULT 0.0,
+      zpd_upper REAL NOT NULL DEFAULT 0.3,
+      difficulty_rating REAL NOT NULL DEFAULT 0.5,
+      times_practiced INTEGER DEFAULT 0,
+      times_correct INTEGER DEFAULT 0,
+      times_incorrect INTEGER DEFAULT 0,
+      last_practiced TEXT,
+      next_review_due TEXT,
+      easiness_factor REAL DEFAULT 2.5,
+      interval_days REAL DEFAULT 1.0,
+      repetition_number INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )
+  `)
+  database.run('CREATE INDEX IF NOT EXISTS idx_knowledge_states_category ON knowledge_states(category)')
+  database.run('CREATE INDEX IF NOT EXISTS idx_knowledge_states_mastery ON knowledge_states(mastery_level)')
+  database.run('CREATE INDEX IF NOT EXISTS idx_knowledge_states_review ON knowledge_states(next_review_due)')
+
+  // === LEARNING PROGRESS TABLE ===
+  database.run(`
+    CREATE TABLE IF NOT EXISTS learning_progress (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      concept_id TEXT NOT NULL,
+      activity_type TEXT NOT NULL,
+      difficulty_attempted REAL NOT NULL,
+      performance_score REAL NOT NULL,
+      time_spent_ms INTEGER DEFAULT 0,
+      scaffolding_level INTEGER DEFAULT 0,
+      hints_used INTEGER DEFAULT 0,
+      attempts INTEGER DEFAULT 1,
+      completed INTEGER DEFAULT 0,
+      started_at TEXT DEFAULT (datetime('now')),
+      completed_at TEXT,
+      FOREIGN KEY (concept_id) REFERENCES knowledge_states(concept_id)
+    )
+  `)
+  database.run('CREATE INDEX IF NOT EXISTS idx_learning_progress_session ON learning_progress(session_id)')
+  database.run('CREATE INDEX IF NOT EXISTS idx_learning_progress_concept ON learning_progress(concept_id)')
+
+  // === KNOWLEDGE GAPS TABLE ===
+  database.run(`
+    CREATE TABLE IF NOT EXISTS knowledge_gaps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      concept_id TEXT NOT NULL,
+      gap_type TEXT NOT NULL,
+      severity REAL NOT NULL DEFAULT 0.5,
+      prerequisite_missing TEXT,
+      misconception_detected TEXT,
+      evidence_text TEXT,
+      times_detected INTEGER DEFAULT 1,
+      addressed INTEGER DEFAULT 0,
+      detected_at TEXT DEFAULT (datetime('now')),
+      last_seen TEXT DEFAULT (datetime('now')),
+      addressed_at TEXT,
+      FOREIGN KEY (concept_id) REFERENCES knowledge_states(concept_id)
+    )
+  `)
+  database.run('CREATE INDEX IF NOT EXISTS idx_knowledge_gaps_concept ON knowledge_gaps(concept_id)')
+  database.run('CREATE INDEX IF NOT EXISTS idx_knowledge_gaps_severity ON knowledge_gaps(severity)')
+
+  // === LEARNING EVENTS TABLE ===
+  database.run(`
+    CREATE TABLE IF NOT EXISTS learning_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT NOT NULL,
+      concept_id TEXT,
+      event_data TEXT,
+      learning_style_used TEXT,
+      difficulty_level REAL,
+      performance_result REAL,
+      zpd_assessment TEXT,
+      scaffolding_applied TEXT,
+      timestamp TEXT DEFAULT (datetime('now'))
+    )
+  `)
+  database.run('CREATE INDEX IF NOT EXISTS idx_learning_events_type ON learning_events(event_type)')
+  database.run('CREATE INDEX IF NOT EXISTS idx_learning_events_concept ON learning_events(concept_id)')
+  database.run('CREATE INDEX IF NOT EXISTS idx_learning_events_time ON learning_events(timestamp)')
+
+  // === LEARNING PREFERENCES TABLE ===
+  database.run(`
+    CREATE TABLE IF NOT EXISTS learning_preferences (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      preference_type TEXT NOT NULL UNIQUE,
+      detected_value TEXT,
+      confidence REAL DEFAULT 0.0,
+      user_override TEXT,
+      detection_method TEXT,
+      sample_size INTEGER DEFAULT 0,
+      last_updated TEXT DEFAULT (datetime('now'))
+    )
+  `)
+
+  // === CONCEPT_PREREQUISITES TABLE ===
+  database.run(`
+    CREATE TABLE IF NOT EXISTS concept_prerequisites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      concept_id TEXT NOT NULL,
+      prerequisite_id TEXT NOT NULL,
+      strength REAL NOT NULL DEFAULT 1.0,
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(concept_id, prerequisite_id),
+      FOREIGN KEY (concept_id) REFERENCES knowledge_states(concept_id),
+      FOREIGN KEY (prerequisite_id) REFERENCES knowledge_states(concept_id)
+    )
+  `)
+  database.run('CREATE INDEX IF NOT EXISTS idx_concept_prereqs_concept ON concept_prerequisites(concept_id)')
+  database.run('CREATE INDEX IF NOT EXISTS idx_concept_prereqs_prereq ON concept_prerequisites(prerequisite_id)')
+
+  // Initialize default learning preferences
+  const defaultPreferences = [
+    'learning_style_vark',          // visual, auditory, reading, kinesthetic
+    'information_processing_depth', // shallow, moderate, deep
+    'scaffolding_preference',       // minimal, moderate, extensive
+    'feedback_timing',              // immediate, delayed, on_request
+    'challenge_level',              // comfort_zone, slight_stretch, growth_zone
+    'social_learning',              // solo, collaborative, mixed
+    'time_preference',              // short_bursts, sustained_focus, varied
+  ]
+  for (const pref of defaultPreferences) {
+    database.run(
+      `INSERT OR IGNORE INTO learning_preferences (preference_type, detected_value, confidence)
+       VALUES (?, NULL, 0.0)`,
+      [pref]
+    )
+  }
+
+  console.log('Phase 3 Adaptive Learning tables created/migrated')
+
+  // ==================== PHASE 6: REAL-TIME EMOTION DETECTION TABLES ====================
+
+  // === EMOTION STATES TABLE ===
+  // Stores individual emotion detections during conversations
+  database.run(`
+    CREATE TABLE IF NOT EXISTS emotion_states (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      message_id TEXT,
+      valence REAL NOT NULL,
+      arousal REAL NOT NULL,
+      primary_emotion TEXT NOT NULL,
+      secondary_emotion TEXT,
+      confidence REAL NOT NULL DEFAULT 0.0,
+      intensity REAL NOT NULL DEFAULT 0.5,
+      source TEXT NOT NULL DEFAULT 'audio',
+      detected_at TEXT DEFAULT (datetime('now'))
+    )
+  `)
+  database.run('CREATE INDEX IF NOT EXISTS idx_emotion_states_session ON emotion_states(session_id)')
+  database.run('CREATE INDEX IF NOT EXISTS idx_emotion_states_time ON emotion_states(detected_at)')
+  database.run('CREATE INDEX IF NOT EXISTS idx_emotion_states_emotion ON emotion_states(primary_emotion)')
+
+  // === EMOTION SESSIONS TABLE ===
+  // Aggregated emotion statistics per session
+  database.run(`
+    CREATE TABLE IF NOT EXISTS emotion_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL UNIQUE,
+      avg_valence REAL DEFAULT 0.0,
+      avg_arousal REAL DEFAULT 0.0,
+      dominant_emotion TEXT,
+      emotion_variability REAL DEFAULT 0.0,
+      total_detections INTEGER DEFAULT 0,
+      positive_ratio REAL DEFAULT 0.5,
+      high_arousal_ratio REAL DEFAULT 0.5,
+      emotion_distribution TEXT,
+      started_at TEXT DEFAULT (datetime('now')),
+      last_updated TEXT DEFAULT (datetime('now'))
+    )
+  `)
+  database.run('CREATE INDEX IF NOT EXISTS idx_emotion_sessions_session ON emotion_sessions(session_id)')
+
+  console.log('Phase 6 Real-time Emotion Detection tables created/migrated')
 }
 
 // Insert initial data for all domains, features, and metrics
@@ -1212,4 +1525,1135 @@ export interface MatchedWord {
   word: string
   count: number
   lastSeen: string
+}
+
+// ==================== PHASE 3: ADAPTIVE LEARNING TYPES ====================
+
+export interface KnowledgeState {
+  id?: number
+  conceptId: string
+  conceptName: string
+  category: string
+  masteryLevel: number        // 0.0 to 1.0
+  zpdLower: number            // Zone of Proximal Development lower bound
+  zpdUpper: number            // Zone of Proximal Development upper bound
+  difficultyRating: number    // Current difficulty of this concept for user
+  timesPracticed: number
+  timesCorrect: number
+  timesIncorrect: number
+  lastPracticed: string | null
+  nextReviewDue: string | null
+  // SM-2 Spaced Repetition fields
+  easinessFactor: number      // Default 2.5
+  intervalDays: number        // Days until next review
+  repetitionNumber: number    // Number of successful reviews
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LearningProgress {
+  id?: number
+  sessionId: string
+  conceptId: string
+  activityType: string        // 'explanation', 'quiz', 'practice', 'reflection'
+  difficultyAttempted: number
+  performanceScore: number    // 0.0 to 1.0
+  timeSpentMs: number
+  scaffoldingLevel: number    // 0 = none, 1 = hints, 2 = guided, 3 = full support
+  hintsUsed: number
+  attempts: number
+  completed: boolean
+  startedAt: string
+  completedAt: string | null
+}
+
+export interface KnowledgeGap {
+  id?: number
+  conceptId: string
+  gapType: string             // 'prerequisite_missing', 'misconception', 'partial_understanding'
+  severity: number            // 0.0 to 1.0 (1.0 = severe)
+  prerequisiteMissing: string | null
+  misconceptionDetected: string | null
+  evidenceText: string | null
+  timesDetected: number
+  addressed: boolean
+  detectedAt: string
+  lastSeen: string
+  addressedAt: string | null
+}
+
+export interface LearningEvent {
+  id?: number
+  eventType: string           // 'concept_introduced', 'mastery_increased', 'gap_detected', 'review_scheduled'
+  conceptId: string | null
+  eventData: string | null    // JSON string with event details
+  learningStyleUsed: string | null
+  difficultyLevel: number | null
+  performanceResult: number | null
+  zpdAssessment: string | null
+  scaffoldingApplied: string | null
+  timestamp: string
+}
+
+export interface LearningPreference {
+  id?: number
+  preferenceType: string
+  detectedValue: string | null
+  confidence: number
+  userOverride: string | null
+  detectionMethod: string | null
+  sampleSize: number
+  lastUpdated: string
+}
+
+export interface ConceptPrerequisite {
+  id?: number
+  conceptId: string
+  prerequisiteId: string
+  strength: number            // 0.0 to 1.0 (how essential)
+  createdAt: string
+}
+
+// ==================== PHASE 3: ADAPTIVE LEARNING FUNCTIONS ====================
+
+// === KNOWLEDGE STATES ===
+
+/**
+ * Get or create a knowledge state for a concept
+ */
+export async function getOrCreateKnowledgeState(
+  conceptId: string,
+  conceptName: string,
+  category: string
+): Promise<KnowledgeState> {
+  const database = await getDb()
+
+  // Try to get existing
+  const existing = database.exec(
+    `SELECT * FROM knowledge_states WHERE concept_id = ?`,
+    [conceptId]
+  )
+
+  if (existing.length && existing[0].values.length) {
+    const row = existing[0].values[0]
+    return {
+      id: row[0] as number,
+      conceptId: row[1] as string,
+      conceptName: row[2] as string,
+      category: row[3] as string,
+      masteryLevel: row[4] as number,
+      zpdLower: row[5] as number,
+      zpdUpper: row[6] as number,
+      difficultyRating: row[7] as number,
+      timesPracticed: row[8] as number,
+      timesCorrect: row[9] as number,
+      timesIncorrect: row[10] as number,
+      lastPracticed: row[11] as string | null,
+      nextReviewDue: row[12] as string | null,
+      easinessFactor: row[13] as number,
+      intervalDays: row[14] as number,
+      repetitionNumber: row[15] as number,
+      createdAt: row[16] as string,
+      updatedAt: row[17] as string,
+    }
+  }
+
+  // Create new
+  database.run(
+    `INSERT INTO knowledge_states (concept_id, concept_name, category)
+     VALUES (?, ?, ?)`,
+    [conceptId, conceptName, category]
+  )
+  scheduleSave()
+
+  // Return the created record
+  return getOrCreateKnowledgeState(conceptId, conceptName, category)
+}
+
+/**
+ * Get all knowledge states
+ */
+export async function getAllKnowledgeStates(): Promise<KnowledgeState[]> {
+  const database = await getDb()
+  const results = database.exec(`SELECT * FROM knowledge_states ORDER BY category, concept_name`)
+
+  if (!results.length) return []
+
+  return results[0].values.map(row => ({
+    id: row[0] as number,
+    conceptId: row[1] as string,
+    conceptName: row[2] as string,
+    category: row[3] as string,
+    masteryLevel: row[4] as number,
+    zpdLower: row[5] as number,
+    zpdUpper: row[6] as number,
+    difficultyRating: row[7] as number,
+    timesPracticed: row[8] as number,
+    timesCorrect: row[9] as number,
+    timesIncorrect: row[10] as number,
+    lastPracticed: row[11] as string | null,
+    nextReviewDue: row[12] as string | null,
+    easinessFactor: row[13] as number,
+    intervalDays: row[14] as number,
+    repetitionNumber: row[15] as number,
+    createdAt: row[16] as string,
+    updatedAt: row[17] as string,
+  }))
+}
+
+/**
+ * Get knowledge states by category
+ */
+export async function getKnowledgeStatesByCategory(category: string): Promise<KnowledgeState[]> {
+  const database = await getDb()
+  const results = database.exec(
+    `SELECT * FROM knowledge_states WHERE category = ? ORDER BY concept_name`,
+    [category]
+  )
+
+  if (!results.length) return []
+
+  return results[0].values.map(row => ({
+    id: row[0] as number,
+    conceptId: row[1] as string,
+    conceptName: row[2] as string,
+    category: row[3] as string,
+    masteryLevel: row[4] as number,
+    zpdLower: row[5] as number,
+    zpdUpper: row[6] as number,
+    difficultyRating: row[7] as number,
+    timesPracticed: row[8] as number,
+    timesCorrect: row[9] as number,
+    timesIncorrect: row[10] as number,
+    lastPracticed: row[11] as string | null,
+    nextReviewDue: row[12] as string | null,
+    easinessFactor: row[13] as number,
+    intervalDays: row[14] as number,
+    repetitionNumber: row[15] as number,
+    createdAt: row[16] as string,
+    updatedAt: row[17] as string,
+  }))
+}
+
+/**
+ * Update mastery level and related metrics for a concept
+ */
+export async function updateKnowledgeMastery(
+  conceptId: string,
+  performanceScore: number,
+  wasCorrect: boolean
+): Promise<KnowledgeState | null> {
+  const database = await getDb()
+
+  // Get current state
+  const current = database.exec(
+    `SELECT mastery_level, times_practiced, times_correct, times_incorrect,
+            easiness_factor, interval_days, repetition_number
+     FROM knowledge_states WHERE concept_id = ?`,
+    [conceptId]
+  )
+
+  if (!current.length || !current[0].values.length) return null
+
+  const [mastery, practiced, correct, incorrect, ef, interval, repNum] = current[0].values[0] as number[]
+
+  // Calculate new mastery using exponential moving average
+  const alpha = 0.3 // Learning rate
+  const newMastery = Math.min(1.0, Math.max(0.0, mastery * (1 - alpha) + performanceScore * alpha))
+
+  // Update ZPD based on mastery
+  const zpdLower = Math.max(0.0, newMastery - 0.15)
+  const zpdUpper = Math.min(1.0, newMastery + 0.25)
+
+  // SM-2 Spaced Repetition Algorithm
+  let newEF = ef
+  let newInterval = interval
+  let newRepNum = repNum
+
+  if (wasCorrect) {
+    // Quality rating (0-5 scale based on performance)
+    const quality = Math.round(performanceScore * 5)
+
+    // Update easiness factor
+    newEF = Math.max(1.3, ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)))
+
+    // Update interval
+    if (repNum === 0) {
+      newInterval = 1
+    } else if (repNum === 1) {
+      newInterval = 6
+    } else {
+      newInterval = Math.round(interval * newEF)
+    }
+
+    newRepNum = repNum + 1
+  } else {
+    // Reset on incorrect
+    newRepNum = 0
+    newInterval = 1
+  }
+
+  // Calculate next review date
+  const nextReview = new Date()
+  nextReview.setDate(nextReview.getDate() + newInterval)
+
+  database.run(
+    `UPDATE knowledge_states
+     SET mastery_level = ?,
+         zpd_lower = ?,
+         zpd_upper = ?,
+         times_practiced = ?,
+         times_correct = ?,
+         times_incorrect = ?,
+         last_practiced = datetime('now'),
+         next_review_due = ?,
+         easiness_factor = ?,
+         interval_days = ?,
+         repetition_number = ?,
+         updated_at = datetime('now')
+     WHERE concept_id = ?`,
+    [
+      newMastery, zpdLower, zpdUpper,
+      practiced + 1,
+      wasCorrect ? correct + 1 : correct,
+      wasCorrect ? incorrect : incorrect + 1,
+      nextReview.toISOString(),
+      newEF, newInterval, newRepNum,
+      conceptId
+    ]
+  )
+  scheduleSave()
+
+  // Return updated state
+  const states = await getAllKnowledgeStates()
+  return states.find(s => s.conceptId === conceptId) || null
+}
+
+/**
+ * Get concepts due for review (spaced repetition)
+ */
+export async function getConceptsDueForReview(limit: number = 10): Promise<KnowledgeState[]> {
+  const database = await getDb()
+  const now = new Date().toISOString()
+
+  const results = database.exec(
+    `SELECT * FROM knowledge_states
+     WHERE next_review_due IS NOT NULL AND next_review_due <= ?
+     ORDER BY next_review_due ASC
+     LIMIT ?`,
+    [now, limit]
+  )
+
+  if (!results.length) return []
+
+  return results[0].values.map(row => ({
+    id: row[0] as number,
+    conceptId: row[1] as string,
+    conceptName: row[2] as string,
+    category: row[3] as string,
+    masteryLevel: row[4] as number,
+    zpdLower: row[5] as number,
+    zpdUpper: row[6] as number,
+    difficultyRating: row[7] as number,
+    timesPracticed: row[8] as number,
+    timesCorrect: row[9] as number,
+    timesIncorrect: row[10] as number,
+    lastPracticed: row[11] as string | null,
+    nextReviewDue: row[12] as string | null,
+    easinessFactor: row[13] as number,
+    intervalDays: row[14] as number,
+    repetitionNumber: row[15] as number,
+    createdAt: row[16] as string,
+    updatedAt: row[17] as string,
+  }))
+}
+
+// === LEARNING PROGRESS ===
+
+/**
+ * Record a learning activity
+ */
+export async function recordLearningProgress(
+  sessionId: string,
+  conceptId: string,
+  activityType: string,
+  difficultyAttempted: number,
+  performanceScore: number,
+  timeSpentMs: number,
+  scaffoldingLevel: number = 0,
+  hintsUsed: number = 0,
+  attempts: number = 1
+): Promise<number> {
+  const database = await getDb()
+
+  database.run(
+    `INSERT INTO learning_progress
+     (session_id, concept_id, activity_type, difficulty_attempted, performance_score,
+      time_spent_ms, scaffolding_level, hints_used, attempts, completed, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))`,
+    [sessionId, conceptId, activityType, difficultyAttempted, performanceScore,
+     timeSpentMs, scaffoldingLevel, hintsUsed, attempts]
+  )
+  scheduleSave()
+
+  // Get the inserted ID
+  const result = database.exec('SELECT last_insert_rowid()')
+  return result[0]?.values[0]?.[0] as number || 0
+}
+
+/**
+ * Get learning progress for a session
+ */
+export async function getLearningProgressForSession(sessionId: string): Promise<LearningProgress[]> {
+  const database = await getDb()
+  const results = database.exec(
+    `SELECT * FROM learning_progress WHERE session_id = ? ORDER BY started_at DESC`,
+    [sessionId]
+  )
+
+  if (!results.length) return []
+
+  return results[0].values.map(row => ({
+    id: row[0] as number,
+    sessionId: row[1] as string,
+    conceptId: row[2] as string,
+    activityType: row[3] as string,
+    difficultyAttempted: row[4] as number,
+    performanceScore: row[5] as number,
+    timeSpentMs: row[6] as number,
+    scaffoldingLevel: row[7] as number,
+    hintsUsed: row[8] as number,
+    attempts: row[9] as number,
+    completed: Boolean(row[10]),
+    startedAt: row[11] as string,
+    completedAt: row[12] as string | null,
+  }))
+}
+
+/**
+ * Get average performance for a concept
+ */
+export async function getConceptPerformanceStats(conceptId: string): Promise<{
+  avgScore: number
+  avgTime: number
+  totalAttempts: number
+  avgScaffolding: number
+}> {
+  const database = await getDb()
+  const results = database.exec(
+    `SELECT AVG(performance_score), AVG(time_spent_ms), COUNT(*), AVG(scaffolding_level)
+     FROM learning_progress
+     WHERE concept_id = ? AND completed = 1`,
+    [conceptId]
+  )
+
+  if (!results.length || !results[0].values.length) {
+    return { avgScore: 0, avgTime: 0, totalAttempts: 0, avgScaffolding: 0 }
+  }
+
+  const [avgScore, avgTime, total, avgScaff] = results[0].values[0] as number[]
+  return {
+    avgScore: avgScore || 0,
+    avgTime: avgTime || 0,
+    totalAttempts: total || 0,
+    avgScaffolding: avgScaff || 0,
+  }
+}
+
+// === KNOWLEDGE GAPS ===
+
+/**
+ * Record a detected knowledge gap
+ */
+export async function recordKnowledgeGap(
+  conceptId: string,
+  gapType: string,
+  severity: number,
+  prerequisiteMissing?: string,
+  misconceptionDetected?: string,
+  evidenceText?: string
+): Promise<number> {
+  const database = await getDb()
+
+  // Check if gap already exists
+  const existing = database.exec(
+    `SELECT id, times_detected FROM knowledge_gaps
+     WHERE concept_id = ? AND gap_type = ? AND addressed = 0`,
+    [conceptId, gapType]
+  )
+
+  if (existing.length && existing[0].values.length) {
+    const [id, timesDetected] = existing[0].values[0] as number[]
+    database.run(
+      `UPDATE knowledge_gaps
+       SET times_detected = ?, severity = ?, last_seen = datetime('now'),
+           evidence_text = COALESCE(?, evidence_text)
+       WHERE id = ?`,
+      [timesDetected + 1, severity, evidenceText ?? null, id]
+    )
+    scheduleSave()
+    return id
+  }
+
+  // Create new gap
+  database.run(
+    `INSERT INTO knowledge_gaps
+     (concept_id, gap_type, severity, prerequisite_missing, misconception_detected, evidence_text)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [conceptId, gapType, severity, prerequisiteMissing ?? null, misconceptionDetected ?? null, evidenceText ?? null]
+  )
+  scheduleSave()
+
+  const result = database.exec('SELECT last_insert_rowid()')
+  return result[0]?.values[0]?.[0] as number || 0
+}
+
+/**
+ * Get unaddressed knowledge gaps
+ */
+export async function getUnaddressedKnowledgeGaps(): Promise<KnowledgeGap[]> {
+  const database = await getDb()
+  const results = database.exec(
+    `SELECT * FROM knowledge_gaps WHERE addressed = 0 ORDER BY severity DESC, times_detected DESC`
+  )
+
+  if (!results.length) return []
+
+  return results[0].values.map(row => ({
+    id: row[0] as number,
+    conceptId: row[1] as string,
+    gapType: row[2] as string,
+    severity: row[3] as number,
+    prerequisiteMissing: row[4] as string | null,
+    misconceptionDetected: row[5] as string | null,
+    evidenceText: row[6] as string | null,
+    timesDetected: row[7] as number,
+    addressed: Boolean(row[8]),
+    detectedAt: row[9] as string,
+    lastSeen: row[10] as string,
+    addressedAt: row[11] as string | null,
+  }))
+}
+
+/**
+ * Mark a knowledge gap as addressed
+ */
+export async function markKnowledgeGapAddressed(gapId: number): Promise<void> {
+  const database = await getDb()
+  database.run(
+    `UPDATE knowledge_gaps SET addressed = 1, addressed_at = datetime('now') WHERE id = ?`,
+    [gapId]
+  )
+  scheduleSave()
+}
+
+// === LEARNING EVENTS ===
+
+/**
+ * Log a learning event
+ */
+export async function logLearningEvent(
+  eventType: string,
+  conceptId?: string,
+  eventData?: object,
+  learningStyleUsed?: string,
+  difficultyLevel?: number,
+  performanceResult?: number,
+  zpdAssessment?: string,
+  scaffoldingApplied?: string
+): Promise<void> {
+  const database = await getDb()
+  database.run(
+    `INSERT INTO learning_events
+     (event_type, concept_id, event_data, learning_style_used, difficulty_level,
+      performance_result, zpd_assessment, scaffolding_applied)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      eventType,
+      conceptId ?? null,
+      eventData ? JSON.stringify(eventData) : null,
+      learningStyleUsed ?? null,
+      difficultyLevel ?? null,
+      performanceResult ?? null,
+      zpdAssessment ?? null,
+      scaffoldingApplied ?? null
+    ]
+  )
+  scheduleSave()
+}
+
+/**
+ * Get recent learning events
+ */
+export async function getRecentLearningEvents(limit: number = 50): Promise<LearningEvent[]> {
+  const database = await getDb()
+  const results = database.exec(
+    `SELECT * FROM learning_events ORDER BY timestamp DESC LIMIT ?`,
+    [limit]
+  )
+
+  if (!results.length) return []
+
+  return results[0].values.map(row => ({
+    id: row[0] as number,
+    eventType: row[1] as string,
+    conceptId: row[2] as string | null,
+    eventData: row[3] as string | null,
+    learningStyleUsed: row[4] as string | null,
+    difficultyLevel: row[5] as number | null,
+    performanceResult: row[6] as number | null,
+    zpdAssessment: row[7] as string | null,
+    scaffoldingApplied: row[8] as string | null,
+    timestamp: row[9] as string,
+  }))
+}
+
+// === LEARNING PREFERENCES ===
+
+/**
+ * Update a learning preference
+ */
+export async function updateLearningPreference(
+  preferenceType: string,
+  detectedValue: string,
+  confidence: number,
+  detectionMethod?: string,
+  incrementSampleSize: boolean = true
+): Promise<void> {
+  const database = await getDb()
+
+  if (incrementSampleSize) {
+    database.run(
+      `UPDATE learning_preferences
+       SET detected_value = ?, confidence = ?, detection_method = ?,
+           sample_size = sample_size + 1, last_updated = datetime('now')
+       WHERE preference_type = ?`,
+      [detectedValue, confidence, detectionMethod ?? null, preferenceType]
+    )
+  } else {
+    database.run(
+      `UPDATE learning_preferences
+       SET detected_value = ?, confidence = ?, detection_method = ?,
+           last_updated = datetime('now')
+       WHERE preference_type = ?`,
+      [detectedValue, confidence, detectionMethod ?? null, preferenceType]
+    )
+  }
+  scheduleSave()
+}
+
+/**
+ * Set user override for a learning preference
+ */
+export async function setLearningPreferenceOverride(
+  preferenceType: string,
+  userOverride: string | null
+): Promise<void> {
+  const database = await getDb()
+  database.run(
+    `UPDATE learning_preferences SET user_override = ?, last_updated = datetime('now')
+     WHERE preference_type = ?`,
+    [userOverride, preferenceType]
+  )
+  scheduleSave()
+}
+
+/**
+ * Get all learning preferences
+ */
+export async function getAllLearningPreferences(): Promise<LearningPreference[]> {
+  const database = await getDb()
+  const results = database.exec(`SELECT * FROM learning_preferences`)
+
+  if (!results.length) return []
+
+  return results[0].values.map(row => ({
+    id: row[0] as number,
+    preferenceType: row[1] as string,
+    detectedValue: row[2] as string | null,
+    confidence: row[3] as number,
+    userOverride: row[4] as string | null,
+    detectionMethod: row[5] as string | null,
+    sampleSize: row[6] as number,
+    lastUpdated: row[7] as string,
+  }))
+}
+
+/**
+ * Get effective learning preference (user override takes precedence)
+ */
+export async function getEffectiveLearningPreference(preferenceType: string): Promise<string | null> {
+  const database = await getDb()
+  const results = database.exec(
+    `SELECT user_override, detected_value FROM learning_preferences WHERE preference_type = ?`,
+    [preferenceType]
+  )
+
+  if (!results.length || !results[0].values.length) return null
+
+  const [userOverride, detectedValue] = results[0].values[0] as (string | null)[]
+  return userOverride ?? detectedValue
+}
+
+// === CONCEPT PREREQUISITES ===
+
+/**
+ * Add a concept prerequisite relationship
+ */
+export async function addConceptPrerequisite(
+  conceptId: string,
+  prerequisiteId: string,
+  strength: number = 1.0
+): Promise<void> {
+  const database = await getDb()
+  database.run(
+    `INSERT OR REPLACE INTO concept_prerequisites (concept_id, prerequisite_id, strength)
+     VALUES (?, ?, ?)`,
+    [conceptId, prerequisiteId, strength]
+  )
+  scheduleSave()
+}
+
+/**
+ * Get prerequisites for a concept
+ */
+export async function getConceptPrerequisites(conceptId: string): Promise<ConceptPrerequisite[]> {
+  const database = await getDb()
+  const results = database.exec(
+    `SELECT * FROM concept_prerequisites WHERE concept_id = ? ORDER BY strength DESC`,
+    [conceptId]
+  )
+
+  if (!results.length) return []
+
+  return results[0].values.map(row => ({
+    id: row[0] as number,
+    conceptId: row[1] as string,
+    prerequisiteId: row[2] as string,
+    strength: row[3] as number,
+    createdAt: row[4] as string,
+  }))
+}
+
+/**
+ * Check if all prerequisites are met for a concept
+ */
+export async function arePrerequisitesMet(
+  conceptId: string,
+  minMasteryLevel: number = 0.6
+): Promise<{ met: boolean; missingPrereqs: string[] }> {
+  const database = await getDb()
+
+  const results = database.exec(
+    `SELECT cp.prerequisite_id, ks.mastery_level, ks.concept_name
+     FROM concept_prerequisites cp
+     LEFT JOIN knowledge_states ks ON cp.prerequisite_id = ks.concept_id
+     WHERE cp.concept_id = ?`,
+    [conceptId]
+  )
+
+  if (!results.length || !results[0].values.length) {
+    return { met: true, missingPrereqs: [] }
+  }
+
+  const missingPrereqs: string[] = []
+
+  for (const row of results[0].values) {
+    const prereqId = row[0] as string
+    const mastery = (row[1] as number) ?? 0
+    const name = row[2] as string | null
+
+    if (mastery < minMasteryLevel) {
+      missingPrereqs.push(name || prereqId)
+    }
+  }
+
+  return { met: missingPrereqs.length === 0, missingPrereqs }
+}
+
+// === UTILITY FUNCTIONS ===
+
+/**
+ * Clear all Phase 3 learning data
+ */
+export async function clearLearningData(): Promise<void> {
+  const database = await getDb()
+
+  database.run('DELETE FROM learning_events')
+  database.run('DELETE FROM learning_progress')
+  database.run('DELETE FROM knowledge_gaps')
+  database.run('DELETE FROM concept_prerequisites')
+  database.run('DELETE FROM knowledge_states')
+  database.run('UPDATE learning_preferences SET detected_value = NULL, confidence = 0.0, sample_size = 0, user_override = NULL')
+
+  scheduleSave()
+}
+
+/**
+ * Export Phase 3 learning data
+ */
+export async function exportLearningData(): Promise<object> {
+  const database = await getDb()
+
+  return {
+    knowledgeStates: database.exec('SELECT * FROM knowledge_states'),
+    learningProgress: database.exec('SELECT * FROM learning_progress'),
+    knowledgeGaps: database.exec('SELECT * FROM knowledge_gaps'),
+    learningEvents: database.exec('SELECT * FROM learning_events ORDER BY timestamp DESC LIMIT 1000'),
+    learningPreferences: database.exec('SELECT * FROM learning_preferences'),
+    conceptPrerequisites: database.exec('SELECT * FROM concept_prerequisites'),
+  }
+}
+
+// ==================== PHASE 6: REAL-TIME EMOTION DETECTION TYPES ====================
+
+export interface StoredEmotionState {
+  id?: number
+  sessionId: string
+  messageId: string | null
+  valence: number           // -1 to 1
+  arousal: number           // -1 to 1
+  primaryEmotion: string
+  secondaryEmotion: string | null
+  confidence: number        // 0-1
+  intensity: number         // 0-1
+  source: 'audio' | 'text' | 'multimodal'
+  detectedAt: string
+}
+
+export interface EmotionSessionStats {
+  id?: number
+  sessionId: string
+  avgValence: number
+  avgArousal: number
+  dominantEmotion: string | null
+  emotionVariability: number  // Standard deviation of valence/arousal
+  totalDetections: number
+  positiveRatio: number       // Ratio of positive valence emotions
+  highArousalRatio: number    // Ratio of high arousal emotions
+  emotionDistribution: Record<string, number>  // Count per emotion
+  startedAt: string
+  lastUpdated: string
+}
+
+// ==================== PHASE 6: REAL-TIME EMOTION DETECTION FUNCTIONS ====================
+
+/**
+ * Save a detected emotion state
+ */
+export async function saveEmotionState(
+  sessionId: string,
+  valence: number,
+  arousal: number,
+  primaryEmotion: string,
+  confidence: number,
+  intensity: number,
+  source: 'audio' | 'text' | 'multimodal' = 'audio',
+  messageId?: string,
+  secondaryEmotion?: string
+): Promise<number> {
+  const database = await getDb()
+
+  database.run(
+    `INSERT INTO emotion_states
+     (session_id, message_id, valence, arousal, primary_emotion, secondary_emotion, confidence, intensity, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [sessionId, messageId ?? null, valence, arousal, primaryEmotion, secondaryEmotion ?? null, confidence, intensity, source]
+  )
+  scheduleSave()
+
+  // Update session aggregates
+  await updateEmotionSessionStats(sessionId)
+
+  const result = database.exec('SELECT last_insert_rowid()')
+  return result[0]?.values[0]?.[0] as number || 0
+}
+
+/**
+ * Get emotion states for a session
+ */
+export async function getEmotionStatesForSession(sessionId: string, limit: number = 100): Promise<StoredEmotionState[]> {
+  const database = await getDb()
+  const results = database.exec(
+    `SELECT * FROM emotion_states WHERE session_id = ? ORDER BY detected_at DESC LIMIT ?`,
+    [sessionId, limit]
+  )
+
+  if (!results.length) return []
+
+  return results[0].values.map(row => ({
+    id: row[0] as number,
+    sessionId: row[1] as string,
+    messageId: row[2] as string | null,
+    valence: row[3] as number,
+    arousal: row[4] as number,
+    primaryEmotion: row[5] as string,
+    secondaryEmotion: row[6] as string | null,
+    confidence: row[7] as number,
+    intensity: row[8] as number,
+    source: row[9] as 'audio' | 'text' | 'multimodal',
+    detectedAt: row[10] as string,
+  }))
+}
+
+/**
+ * Get recent emotion states across all sessions
+ */
+export async function getRecentEmotionStates(limit: number = 50): Promise<StoredEmotionState[]> {
+  const database = await getDb()
+  const results = database.exec(
+    `SELECT * FROM emotion_states ORDER BY detected_at DESC LIMIT ?`,
+    [limit]
+  )
+
+  if (!results.length) return []
+
+  return results[0].values.map(row => ({
+    id: row[0] as number,
+    sessionId: row[1] as string,
+    messageId: row[2] as string | null,
+    valence: row[3] as number,
+    arousal: row[4] as number,
+    primaryEmotion: row[5] as string,
+    secondaryEmotion: row[6] as string | null,
+    confidence: row[7] as number,
+    intensity: row[8] as number,
+    source: row[9] as 'audio' | 'text' | 'multimodal',
+    detectedAt: row[10] as string,
+  }))
+}
+
+/**
+ * Update aggregated emotion statistics for a session
+ */
+export async function updateEmotionSessionStats(sessionId: string): Promise<void> {
+  const database = await getDb()
+
+  // Calculate aggregates
+  const stats = database.exec(
+    `SELECT
+       AVG(valence) as avg_valence,
+       AVG(arousal) as avg_arousal,
+       COUNT(*) as total,
+       SUM(CASE WHEN valence > 0 THEN 1 ELSE 0 END) as positive_count,
+       SUM(CASE WHEN arousal > 0 THEN 1 ELSE 0 END) as high_arousal_count,
+       (
+         SELECT primary_emotion
+         FROM emotion_states
+         WHERE session_id = ?
+         GROUP BY primary_emotion
+         ORDER BY COUNT(*) DESC
+         LIMIT 1
+       ) as dominant_emotion
+     FROM emotion_states
+     WHERE session_id = ?`,
+    [sessionId, sessionId]
+  )
+
+  if (!stats.length || !stats[0].values.length) return
+
+  const [avgValence, avgArousal, total, positiveCount, highArousalCount, dominantEmotion] = stats[0].values[0] as [number, number, number, number, number, string]
+
+  // Calculate variability (standard deviation of valence)
+  const variabilityResult = database.exec(
+    `SELECT
+       SQRT(AVG((valence - ?) * (valence - ?)) + AVG((arousal - ?) * (arousal - ?))) as variability
+     FROM emotion_states
+     WHERE session_id = ?`,
+    [avgValence, avgValence, avgArousal, avgArousal, sessionId]
+  )
+  const variability = variabilityResult.length && variabilityResult[0].values.length
+    ? (variabilityResult[0].values[0][0] as number) || 0
+    : 0
+
+  // Get emotion distribution
+  const distributionResult = database.exec(
+    `SELECT primary_emotion, COUNT(*) as count
+     FROM emotion_states
+     WHERE session_id = ?
+     GROUP BY primary_emotion`,
+    [sessionId]
+  )
+  const distribution: Record<string, number> = {}
+  if (distributionResult.length && distributionResult[0].values.length) {
+    for (const row of distributionResult[0].values) {
+      distribution[row[0] as string] = row[1] as number
+    }
+  }
+
+  // Upsert session stats
+  database.run(
+    `INSERT INTO emotion_sessions
+     (session_id, avg_valence, avg_arousal, dominant_emotion, emotion_variability,
+      total_detections, positive_ratio, high_arousal_ratio, emotion_distribution, last_updated)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(session_id)
+     DO UPDATE SET
+       avg_valence = ?,
+       avg_arousal = ?,
+       dominant_emotion = ?,
+       emotion_variability = ?,
+       total_detections = ?,
+       positive_ratio = ?,
+       high_arousal_ratio = ?,
+       emotion_distribution = ?,
+       last_updated = datetime('now')`,
+    [
+      sessionId, avgValence, avgArousal, dominantEmotion, variability,
+      total, total > 0 ? positiveCount / total : 0.5, total > 0 ? highArousalCount / total : 0.5,
+      JSON.stringify(distribution),
+      avgValence, avgArousal, dominantEmotion, variability,
+      total, total > 0 ? positiveCount / total : 0.5, total > 0 ? highArousalCount / total : 0.5,
+      JSON.stringify(distribution)
+    ]
+  )
+  scheduleSave()
+}
+
+/**
+ * Get emotion session statistics
+ */
+export async function getEmotionSessionStats(sessionId: string): Promise<EmotionSessionStats | null> {
+  const database = await getDb()
+  const results = database.exec(
+    `SELECT * FROM emotion_sessions WHERE session_id = ?`,
+    [sessionId]
+  )
+
+  if (!results.length || !results[0].values.length) return null
+
+  const row = results[0].values[0]
+  return {
+    id: row[0] as number,
+    sessionId: row[1] as string,
+    avgValence: row[2] as number,
+    avgArousal: row[3] as number,
+    dominantEmotion: row[4] as string | null,
+    emotionVariability: row[5] as number,
+    totalDetections: row[6] as number,
+    positiveRatio: row[7] as number,
+    highArousalRatio: row[8] as number,
+    emotionDistribution: row[9] ? JSON.parse(row[9] as string) : {},
+    startedAt: row[10] as string,
+    lastUpdated: row[11] as string,
+  }
+}
+
+/**
+ * Get all emotion session statistics
+ */
+export async function getAllEmotionSessionStats(): Promise<EmotionSessionStats[]> {
+  const database = await getDb()
+  const results = database.exec(
+    `SELECT * FROM emotion_sessions ORDER BY last_updated DESC`
+  )
+
+  if (!results.length) return []
+
+  return results[0].values.map(row => ({
+    id: row[0] as number,
+    sessionId: row[1] as string,
+    avgValence: row[2] as number,
+    avgArousal: row[3] as number,
+    dominantEmotion: row[4] as string | null,
+    emotionVariability: row[5] as number,
+    totalDetections: row[6] as number,
+    positiveRatio: row[7] as number,
+    highArousalRatio: row[8] as number,
+    emotionDistribution: row[9] ? JSON.parse(row[9] as string) : {},
+    startedAt: row[10] as string,
+    lastUpdated: row[11] as string,
+  }))
+}
+
+/**
+ * Get emotion timeline for a date range
+ */
+export async function getEmotionTimeline(
+  startDate: string,
+  endDate: string,
+  sessionId?: string
+): Promise<StoredEmotionState[]> {
+  const database = await getDb()
+
+  let query = `SELECT * FROM emotion_states WHERE detected_at BETWEEN ? AND ?`
+  const params: (string | number)[] = [startDate, endDate]
+
+  if (sessionId) {
+    query += ' AND session_id = ?'
+    params.push(sessionId)
+  }
+
+  query += ' ORDER BY detected_at ASC'
+
+  const results = database.exec(query, params)
+
+  if (!results.length) return []
+
+  return results[0].values.map(row => ({
+    id: row[0] as number,
+    sessionId: row[1] as string,
+    messageId: row[2] as string | null,
+    valence: row[3] as number,
+    arousal: row[4] as number,
+    primaryEmotion: row[5] as string,
+    secondaryEmotion: row[6] as string | null,
+    confidence: row[7] as number,
+    intensity: row[8] as number,
+    source: row[9] as 'audio' | 'text' | 'multimodal',
+    detectedAt: row[10] as string,
+  }))
+}
+
+/**
+ * Get emotion distribution across all time
+ */
+export async function getOverallEmotionDistribution(): Promise<Record<string, number>> {
+  const database = await getDb()
+  const results = database.exec(`
+    SELECT primary_emotion, COUNT(*) as count
+    FROM emotion_states
+    GROUP BY primary_emotion
+    ORDER BY count DESC
+  `)
+
+  if (!results.length) return {}
+
+  const distribution: Record<string, number> = {}
+  for (const row of results[0].values) {
+    distribution[row[0] as string] = row[1] as number
+  }
+  return distribution
+}
+
+/**
+ * Clear emotion data for a session
+ */
+export async function clearEmotionDataForSession(sessionId: string): Promise<void> {
+  const database = await getDb()
+  database.run('DELETE FROM emotion_states WHERE session_id = ?', [sessionId])
+  database.run('DELETE FROM emotion_sessions WHERE session_id = ?', [sessionId])
+  scheduleSave()
+}
+
+/**
+ * Clear all emotion data
+ */
+export async function clearAllEmotionData(): Promise<void> {
+  const database = await getDb()
+  database.run('DELETE FROM emotion_states')
+  database.run('DELETE FROM emotion_sessions')
+  scheduleSave()
+}
+
+/**
+ * Export emotion data
+ */
+export async function exportEmotionData(): Promise<object> {
+  const database = await getDb()
+
+  return {
+    emotionStates: database.exec('SELECT * FROM emotion_states ORDER BY detected_at DESC'),
+    emotionSessions: database.exec('SELECT * FROM emotion_sessions'),
+  }
 }

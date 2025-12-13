@@ -13,6 +13,7 @@
 import {
   ANALYSIS_CONFIG,
   computeEffectiveWeights,
+  getRuntimeConfig,
   PSYCHOLOGICAL_DOMAINS,
   type PsychologicalDomain,
   type AnalysisWeights,
@@ -109,11 +110,12 @@ export async function analyzeHybrid(
     runLLMAnalysisInBackground()
   }
 
-  // 6. Compute effective weights based on available signals
+  // 6. Compute effective weights based on available signals (using custom weights from settings)
   const weightsUsed = computeEffectiveWeights(
     liwcSignal !== null,
     embeddingSignal !== null,
-    llmSignal !== null
+    llmSignal !== null,
+    getRuntimeConfig()
   )
 
   // 7. Aggregate signals into final scores
@@ -482,7 +484,7 @@ async function persistSignalsToDatabase(
  * and we want the results visible immediately without waiting for next message
  */
 async function persistLLMSignalsToDatabase(result: LLMAnalysisResult): Promise<void> {
-  const llmWeight = ANALYSIS_CONFIG.weights.llm
+  const llmWeight = getRuntimeConfig().weights.llm
 
   for (const domain of PSYCHOLOGICAL_DOMAINS) {
     const domainResult = result.domains[domain]

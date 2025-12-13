@@ -22,6 +22,36 @@ import {
   checkAndRunTimeoutAnalysis,
   getAnalysisStatus,
 } from '../lib/hybrid-aggregator'
+import { initializeLearningSystem } from '../lib/learning-engine'
+import {
+  initContextTables,
+  processMessageWithContext,
+} from '../lib/context-profiler'
+import { buildAdvancedRelationships } from '../lib/advanced-graph'
+import {
+  isAudioAnalysisSupported,
+  initializeAudioAnalyzer,
+  startAudioRecording as startProsodicRecording,
+  stopAudioRecording as stopProsodicRecording,
+  mapFeaturesToDomains,
+  getProsodicSummary,
+  type ProsodicFeatures,
+  type AudioAnalysisResult,
+} from '../lib/audio-analyzer'
+import {
+  quickFuse,
+  getFusionSummary,
+} from '../lib/multimodal-fusion'
+import {
+  detectEmotion,
+  blendEmotions,
+  calculateEmotionTrend,
+  type EmotionalState,
+  type EmotionTrend,
+} from '../lib/emotion-detector'
+import { saveEmotionState } from '../lib/sqldb'
+import { EmotionIndicator } from '../components/EmotionIndicator'
+import type { PsychologicalDomain } from '../lib/analysis-config'
 import { updatePersonalityProfile } from '../lib/personality'
 import { db, updateProfileStats } from '../lib/db'
 import { FormattedMessage } from '../lib/format-message'
@@ -56,6 +86,17 @@ export default function ChatPage() {
   const [recordingTime, setRecordingTime] = useState(0)
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
 
+  // Prosodic analysis state
+  const [isProsodicAnalysisEnabled, setIsProsodicAnalysisEnabled] = useState(false)
+  const [prosodicFeatures, setProsodicFeatures] = useState<ProsodicFeatures | null>(null)
+  const [_prosodicSummary, setProsodicSummary] = useState<string | null>(null)
+
+  // Real-time emotion detection state (Phase 6)
+  const [currentEmotion, setCurrentEmotion] = useState<EmotionalState | null>(null)
+  const [_emotionHistory, setEmotionHistory] = useState<EmotionalState[]>([])
+  const [emotionTrend, setEmotionTrend] = useState<EmotionTrend | null>(null)
+  const [showEmotionPanel, setShowEmotionPanel] = useState(false)
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -86,6 +127,41 @@ export default function ChatPage() {
         console.log('Hybrid analyzer status:', status)
       })
       .catch((error) => console.warn('Hybrid analyzer init failed (non-blocking):', error))
+  }, [])
+
+  // Initialize learning system (prerequisites, preferences, knowledge states)
+  useEffect(() => {
+    console.log('Initializing learning system...')
+    initializeLearningSystem()
+      .then(() => console.log('Learning system initialized'))
+      .catch((error) => console.warn('Learning system init failed (non-blocking):', error))
+  }, [])
+
+  // Initialize context profiling tables
+  useEffect(() => {
+    console.log('Initializing context profiling...')
+    initContextTables()
+      .then(() => console.log('Context profiling tables initialized'))
+      .catch((error) => console.warn('Context profiling init failed (non-blocking):', error))
+  }, [])
+
+  // Initialize prosodic/audio analyzer
+  useEffect(() => {
+    if (isAudioAnalysisSupported()) {
+      console.log('Initializing prosodic audio analyzer...')
+      initializeAudioAnalyzer()
+        .then((success) => {
+          if (success) {
+            setIsProsodicAnalysisEnabled(true)
+            console.log('Prosodic audio analyzer initialized successfully')
+          } else {
+            console.warn('Prosodic audio analyzer initialization failed')
+          }
+        })
+        .catch((error) => console.warn('Prosodic analyzer init failed (non-blocking):', error))
+    } else {
+      console.log('Audio analysis not supported in this browser')
+    }
   }, [])
 
   // Periodic check for timeout-based LLM batch analysis (every 60 seconds)
@@ -253,6 +329,14 @@ export default function ChatPage() {
       setIsRecording(true)
       setRecordingTime(0)
 
+      // Also start prosodic analysis if enabled
+      if (isProsodicAnalysisEnabled) {
+        console.log('Starting prosodic recording alongside audio...')
+        startProsodicRecording().catch((err) => {
+          console.warn('Prosodic recording failed to start:', err)
+        })
+      }
+
       // Update recording time
       recordingIntervalRef.current = window.setInterval(() => {
         setRecordingTime(prev => prev + 1)
@@ -263,10 +347,10 @@ export default function ChatPage() {
       console.error('Failed to start recording:', error)
       alert('Could not access microphone. Please ensure microphone permissions are granted.')
     }
-  }, [])
+  }, [isProsodicAnalysisEnabled])
 
   // Stop audio recording
-  const stopRecording = useCallback(() => {
+  const stopRecording = useCallback(async () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop()
       setIsRecording(false)
@@ -277,9 +361,78 @@ export default function ChatPage() {
         recordingIntervalRef.current = null
       }
 
+      // Stop prosodic recording and capture features
+      if (isProsodicAnalysisEnabled) {
+        try {
+          const features = await stopProsodicRecording()
+          if (features) {
+            setProsodicFeatures(features)
+            const summary = getProsodicSummary(features)
+            setProsodicSummary(summary)
+            console.log('Prosodic features captured:', {
+              pitchMean: features.pitchMean.toFixed(1),
+              speechRate: features.speechRate.toFixed(1),
+              energyMean: features.energyMean.toFixed(3),
+              summary
+            })
+
+            // Phase 6: Real-time emotion detection from prosodic features
+            try {
+              const detectedEmotion = detectEmotion(features)
+
+              // Blend with previous emotion for smoother transitions
+              const blendedEmotion = currentEmotion
+                ? blendEmotions(detectedEmotion, currentEmotion, 0.3)
+                : detectedEmotion
+
+              setCurrentEmotion(blendedEmotion)
+
+              // Add to history (keep last 20)
+              setEmotionHistory(prev => {
+                const newHistory = [blendedEmotion, ...prev].slice(0, 20)
+
+                // Calculate trend from history
+                if (newHistory.length >= 3) {
+                  const trend = calculateEmotionTrend(newHistory.slice(0, 10))
+                  setEmotionTrend(trend)
+                }
+
+                return newHistory
+              })
+
+              // Save to SQL database
+              saveEmotionState(
+                chat.currentSessionId,
+                blendedEmotion.valence,
+                blendedEmotion.arousal,
+                blendedEmotion.primaryEmotion,
+                blendedEmotion.confidence,
+                blendedEmotion.intensity,
+                'audio',
+                undefined,
+                blendedEmotion.secondaryEmotion ?? undefined
+              ).then(() => {
+                console.log('Emotion state saved to SQL:', {
+                  emotion: blendedEmotion.primaryEmotion,
+                  valence: blendedEmotion.valence.toFixed(2),
+                  arousal: blendedEmotion.arousal.toFixed(2),
+                  confidence: blendedEmotion.confidence.toFixed(2),
+                })
+              }).catch(err => {
+                console.warn('Failed to save emotion state:', err)
+              })
+            } catch (emotionErr) {
+              console.warn('Emotion detection failed:', emotionErr)
+            }
+          }
+        } catch (err) {
+          console.warn('Failed to capture prosodic features:', err)
+        }
+      }
+
       console.log('Recording stopped')
     }
-  }, [isRecording])
+  }, [isRecording, isProsodicAnalysisEnabled, currentEmotion, chat.currentSessionId])
 
   // Toggle recording
   const toggleRecording = useCallback(() => {
@@ -290,10 +443,12 @@ export default function ChatPage() {
     }
   }, [isRecording, startRecording, stopRecording])
 
-  // Clear recorded audio
+  // Clear recorded audio and prosodic features
   const clearAudio = useCallback(() => {
     setAudioBlob(null)
     setRecordingTime(0)
+    setProsodicFeatures(null)
+    setProsodicSummary(null)
   }, [])
 
   async function handleLoadModel(modelId: ModelId) {
@@ -353,9 +508,12 @@ export default function ChatPage() {
     const userMessage = input.trim()
     const imagesToSend = [...attachedImages]
     const audioToSend = audioBlob
+    const prosodicToSend = prosodicFeatures // Capture prosodic features for multimodal fusion
     setInput('')
     setAttachedImages([])
     setAudioBlob(null)
+    setProsodicFeatures(null)
+    setProsodicSummary(null)
 
     // Create display content (text + indication of attachments)
     let displayContent = userMessage
@@ -436,7 +594,79 @@ export default function ChatPage() {
               .map(([domain, score]) => `${domain}: ${score.toFixed(2)}`)
           })
 
-          return hybridResult
+          // Process message with context-dependent profiling
+          // Converts hybrid scores to domain score array format expected by context profiler
+          const contextDomainScores = Object.entries(hybridResult.scores).map(([domain, score]) => ({
+            domainId: domain as PsychologicalDomain,
+            score,
+            dataPoints: 1, // Each message is one data point
+          }))
+
+          const contextResult = await processMessageWithContext(
+            String(messageId),
+            chat.currentSessionId,
+            userMessage,
+            contextDomainScores
+          )
+
+          console.log('Context profiling result:', {
+            context: contextResult.primaryContext,
+            confidence: contextResult.confidence.toFixed(2),
+            keywords: contextResult.detectedKeywords.slice(0, 3),
+          })
+
+          // Multimodal fusion: combine text + audio signals if prosodic features are available
+          let fusedScores = hybridResult.scores
+          if (prosodicToSend) {
+            try {
+              // Map prosodic features to psychological domains
+              const audioDomainScores = mapFeaturesToDomains(prosodicToSend)
+
+              // Create AudioAnalysisResult for quickFuse
+              const totalDurationMs = prosodicToSend.speakingDuration + prosodicToSend.silenceDuration
+              const audioResult: AudioAnalysisResult = {
+                features: prosodicToSend,
+                confidence: 0.7, // Default audio confidence
+                domainScores: audioDomainScores,
+                timestamp: Date.now(),
+                durationMs: totalDurationMs,
+              }
+
+              // Quick fuse text and audio signals with context
+              // Signature: quickFuse(hybridScores, hybridConfidence, audioResult?, context?)
+              const fusionResult = quickFuse(
+                hybridResult.scores,
+                0.7, // Hybrid confidence (default)
+                audioResult,
+                contextResult.primaryContext
+              )
+
+              // Merge fused scores with hybrid scores (fused takes precedence)
+              fusedScores = { ...hybridResult.scores, ...fusionResult.scores }
+
+              console.log('Multimodal fusion result:', {
+                textDomains: Object.keys(hybridResult.scores).length,
+                audioDomains: Object.keys(audioDomainScores).length,
+                fusedDomains: Object.keys(fusedScores).length,
+                summary: getFusionSummary(fusionResult),
+                agreement: fusionResult.agreement.overall.toFixed(2),
+                insights: fusionResult.insights.length,
+              })
+            } catch (fusionError) {
+              console.warn('Multimodal fusion failed, using text-only scores:', fusionError)
+            }
+          }
+
+          // Build advanced graph relationships (temporal, cross-domain, context-trait)
+          await buildAdvancedRelationships(
+            chat.currentSessionId, // userId
+            fusedScores, // Use fused scores if available, otherwise hybrid scores
+            contextResult.primaryContext // detected context
+          )
+
+          console.log('Advanced graph relationships built for message:', messageId)
+
+          return { ...hybridResult, scores: fusedScores }
         } catch (error) {
           console.warn('Hybrid analysis failed:', error)
           return null
@@ -550,11 +780,45 @@ export default function ChatPage() {
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-semibold text-gray-900">Chat</h1>
-            <p className="text-sm text-gray-500">
-              Have a conversation - I learn from every interaction
-            </p>
+          <div className="flex items-center gap-4">
+            <div>
+              <h1 className="text-lg font-semibold text-gray-900">Chat</h1>
+              <p className="text-sm text-gray-500">
+                Have a conversation - I learn from every interaction
+              </p>
+            </div>
+
+            {/* Real-time Emotion Indicator (Phase 6) */}
+            {isProsodicAnalysisEnabled && currentEmotion && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowEmotionPanel(!showEmotionPanel)}
+                  className="focus:outline-none"
+                  title="Toggle emotion details"
+                >
+                  <EmotionIndicator
+                    emotionalState={currentEmotion}
+                    trend={emotionTrend}
+                    compact={true}
+                    animated={true}
+                  />
+                </button>
+
+                {/* Expanded emotion panel */}
+                {showEmotionPanel && (
+                  <div className="absolute left-0 top-full mt-2 z-50 w-80">
+                    <EmotionIndicator
+                      emotionalState={currentEmotion}
+                      trend={emotionTrend}
+                      compact={false}
+                      showCircumplex={true}
+                      showConfidence={true}
+                      animated={true}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           {llm.isReady ? (
             <div className="flex items-center gap-2 text-green-600 text-sm">

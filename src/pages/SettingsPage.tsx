@@ -17,8 +17,16 @@ import {
   ChevronUp,
   Edit3,
   History,
+  Wrench,
+  Network,
+  Camera,
+  Sliders,
+  RotateCcw,
 } from 'lucide-react'
 import { exportAllData, deleteAllData } from '../lib/db'
+import { takeProfileSnapshot, getHistoricalStats } from '../lib/history'
+import { buildRelationshipsFromScores, getGraphStats } from '../lib/graphdb'
+import { getDomainScores } from '../lib/sqldb'
 import { MODELS, type ModelId, llmEngine } from '../lib/llm'
 import {
   useStore,
@@ -26,9 +34,11 @@ import {
   RESPONSE_SIZE_CONFIG,
   CONTEXT_WINDOW_OPTIONS,
   SYSTEM_PROMPT_PRESETS,
+  DEFAULT_HYBRID_WEIGHTS,
   type LanguageCode,
   type ResponseSize,
   type ContextWindowSize,
+  type HybridWeights,
 } from '../lib/store'
 import clsx from 'clsx'
 
@@ -44,6 +54,14 @@ export default function SettingsPage() {
   const [expandedContextInfo, setExpandedContextInfo] = useState<false | number>(false)
   const [pendingContextSize, setPendingContextSize] = useState<ContextWindowSize | null>(null)
 
+  // Developer tools state
+  const [isSnapshotting, setIsSnapshotting] = useState(false)
+  const [snapshotSuccess, setSnapshotSuccess] = useState(false)
+  const [snapshotResult, setSnapshotResult] = useState<string | null>(null)
+  const [isBuildingGraph, setIsBuildingGraph] = useState(false)
+  const [graphBuildSuccess, setGraphBuildSuccess] = useState(false)
+  const [graphBuildResult, setGraphBuildResult] = useState<string | null>(null)
+
   const {
     llm,
     settings,
@@ -53,6 +71,8 @@ export default function SettingsPage() {
     setSystemPromptPreset,
     setCustomSystemPrompt,
     setConversationMemoryEnabled,
+    setHybridWeights,
+    resetHybridWeights,
   } = useStore()
 
   // Calculate storage usage
@@ -116,6 +136,71 @@ export default function SettingsPage() {
     }
   }
 
+  // Developer tools handlers
+  async function handleForceSnapshot() {
+    setIsSnapshotting(true)
+    setSnapshotSuccess(false)
+    setSnapshotResult(null)
+
+    try {
+      await takeProfileSnapshot('manual_test')
+      const stats = await getHistoricalStats()
+      setSnapshotSuccess(true)
+      setSnapshotResult(`Snapshot created! Total: ${stats.totalSnapshots} snapshots, ${stats.domainsTracked} domains tracked`)
+      setTimeout(() => {
+        setSnapshotSuccess(false)
+        setSnapshotResult(null)
+      }, 5000)
+    } catch (error) {
+      console.error('Snapshot failed:', error)
+      setSnapshotResult(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setIsSnapshotting(false)
+    }
+  }
+
+  async function handleBuildGraph() {
+    setIsBuildingGraph(true)
+    setGraphBuildSuccess(false)
+    setGraphBuildResult(null)
+
+    try {
+      // Get current domain scores
+      const domainScores = await getDomainScores()
+      const scoreMap: Record<string, number> = {}
+      for (const ds of domainScores) {
+        scoreMap[ds.domainId] = ds.score
+      }
+
+      // Create some test topics if none exist
+      const testTopics = ['testing', 'development', 'conversation', 'psychology', 'analysis']
+
+      // Force build relationships (bypassing the score threshold by using higher test scores)
+      const enhancedScoreMap = { ...scoreMap }
+      // Boost some scores to exceed the 0.5 threshold for testing
+      if (Object.keys(enhancedScoreMap).length > 0) {
+        for (const key of Object.keys(enhancedScoreMap).slice(0, 5)) {
+          enhancedScoreMap[key] = Math.max(enhancedScoreMap[key], 0.6)
+        }
+      }
+
+      await buildRelationshipsFromScores('default_user', enhancedScoreMap, testTopics)
+
+      const stats = await getGraphStats()
+      setGraphBuildSuccess(true)
+      setGraphBuildResult(`Graph built! ${stats.totalTriples} triples, ${stats.userTopicCount} user-topic links`)
+      setTimeout(() => {
+        setGraphBuildSuccess(false)
+        setGraphBuildResult(null)
+      }, 5000)
+    } catch (error) {
+      console.error('Graph build failed:', error)
+      setGraphBuildResult(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setIsBuildingGraph(false)
+    }
+  }
+
   async function handleLoadModel(modelId: ModelId) {
     setSelectedModel(modelId)
     await llmEngine.initialize(modelId)
@@ -143,6 +228,52 @@ export default function SettingsPage() {
     const preset = SYSTEM_PROMPT_PRESETS.find(p => p.id === settings.systemPromptPreset)
     return preset?.prompt || ''
   }
+
+  // Helper function to update a single weight while maintaining sum of 100
+  function updateWeight(key: keyof HybridWeights, value: number) {
+    const currentWeights = settings.hybridWeights
+    const otherKeys = (['liwc', 'embedding', 'llm'] as const).filter(k => k !== key)
+    const otherSum = otherKeys.reduce((sum, k) => sum + currentWeights[k], 0)
+
+    // Ensure the value doesn't exceed 100 or go below 0
+    const clampedValue = Math.max(0, Math.min(100, value))
+
+    // If the other weights sum to 0, we can't redistribute
+    if (otherSum === 0) {
+      const newWeights = { ...currentWeights, [key]: 100 }
+      setHybridWeights(newWeights)
+      return
+    }
+
+    // Calculate remaining weight for others
+    const remaining = 100 - clampedValue
+
+    // Distribute remaining proportionally among other weights
+    const scale = remaining / otherSum
+    const newWeights: HybridWeights = {
+      liwc: key === 'liwc' ? clampedValue : Math.round(currentWeights.liwc * scale),
+      embedding: key === 'embedding' ? clampedValue : Math.round(currentWeights.embedding * scale),
+      llm: key === 'llm' ? clampedValue : Math.round(currentWeights.llm * scale),
+    }
+
+    // Fix rounding errors to ensure sum is exactly 100
+    const sum = newWeights.liwc + newWeights.embedding + newWeights.llm
+    if (sum !== 100) {
+      // Adjust the largest other weight to compensate
+      const diff = 100 - sum
+      const largestOther = otherKeys.reduce((a, b) =>
+        newWeights[a] >= newWeights[b] ? a : b
+      )
+      newWeights[largestOther] += diff
+    }
+
+    setHybridWeights(newWeights)
+  }
+
+  const isDefaultWeights =
+    settings.hybridWeights.liwc === DEFAULT_HYBRID_WEIGHTS.liwc &&
+    settings.hybridWeights.embedding === DEFAULT_HYBRID_WEIGHTS.embedding &&
+    settings.hybridWeights.llm === DEFAULT_HYBRID_WEIGHTS.llm
 
   return (
     <div className="p-6 space-y-6 max-w-4xl">
@@ -256,6 +387,266 @@ export default function SettingsPage() {
               All data has been deleted. Reloading...
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Developer Tools Section */}
+      <div className="bg-white rounded-xl border border-gray-200 border-dashed border-orange-300">
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
+              <Wrench className="w-5 h-5 text-orange-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Developer Tools</h2>
+              <p className="text-sm text-gray-500">
+                Testing utilities for database operations
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* Force Snapshot */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-gray-900">Force SQL.js Snapshot</p>
+              <p className="text-sm text-gray-500">
+                Manually create a history snapshot (bypasses 1-hour threshold)
+              </p>
+            </div>
+            <button
+              onClick={handleForceSnapshot}
+              disabled={isSnapshotting}
+              className={clsx(
+                'flex items-center gap-2 px-4 py-2 rounded-lg transition-colors',
+                snapshotSuccess
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-orange-600 text-white hover:bg-orange-700'
+              )}
+            >
+              {snapshotSuccess ? (
+                <>
+                  <Check className="w-4 h-4" />
+                  Done
+                </>
+              ) : (
+                <>
+                  <Camera className="w-4 h-4" />
+                  {isSnapshotting ? 'Creating...' : 'Snapshot'}
+                </>
+              )}
+            </button>
+          </div>
+
+          {snapshotResult && (
+            <div className={clsx(
+              'flex items-center gap-2 p-3 rounded-lg text-sm',
+              snapshotSuccess ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+            )}>
+              {snapshotSuccess ? <Check className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+              {snapshotResult}
+            </div>
+          )}
+
+          {/* Force Graph Build */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-gray-900">Force LevelGraph Build</p>
+              <p className="text-sm text-gray-500">
+                Build knowledge graph with test topics (bypasses score thresholds)
+              </p>
+            </div>
+            <button
+              onClick={handleBuildGraph}
+              disabled={isBuildingGraph}
+              className={clsx(
+                'flex items-center gap-2 px-4 py-2 rounded-lg transition-colors',
+                graphBuildSuccess
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-orange-600 text-white hover:bg-orange-700'
+              )}
+            >
+              {graphBuildSuccess ? (
+                <>
+                  <Check className="w-4 h-4" />
+                  Done
+                </>
+              ) : (
+                <>
+                  <Network className="w-4 h-4" />
+                  {isBuildingGraph ? 'Building...' : 'Build Graph'}
+                </>
+              )}
+            </button>
+          </div>
+
+          {graphBuildResult && (
+            <div className={clsx(
+              'flex items-center gap-2 p-3 rounded-lg text-sm',
+              graphBuildSuccess ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+            )}>
+              {graphBuildSuccess ? <Check className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+              {graphBuildResult}
+            </div>
+          )}
+
+          <div className="p-3 bg-orange-50 rounded-lg">
+            <p className="text-xs text-orange-700">
+              These tools are for testing purposes. In normal usage, snapshots are created automatically
+              every hour and the knowledge graph is built from actual conversation topics.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Analysis Weights Section */}
+      <div className="bg-white rounded-xl border border-gray-200">
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-violet-100 flex items-center justify-center">
+                <Sliders className="w-5 h-5 text-violet-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Analysis Weights</h2>
+                <p className="text-sm text-gray-500">
+                  Customize how signals contribute to your psychological profile
+                </p>
+              </div>
+            </div>
+            {!isDefaultWeights && (
+              <button
+                onClick={resetHybridWeights}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* Visual weight distribution bar */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs text-gray-500">
+              <span>Weight Distribution</span>
+              <span>Total: 100%</span>
+            </div>
+            <div className="flex h-4 rounded-full overflow-hidden">
+              <div
+                className="bg-blue-500 transition-all duration-200"
+                style={{ width: `${settings.hybridWeights.liwc}%` }}
+                title={`LIWC: ${settings.hybridWeights.liwc}%`}
+              />
+              <div
+                className="bg-emerald-500 transition-all duration-200"
+                style={{ width: `${settings.hybridWeights.embedding}%` }}
+                title={`Embedding: ${settings.hybridWeights.embedding}%`}
+              />
+              <div
+                className="bg-violet-500 transition-all duration-200"
+                style={{ width: `${settings.hybridWeights.llm}%` }}
+                title={`LLM: ${settings.hybridWeights.llm}%`}
+              />
+            </div>
+            <div className="flex justify-between text-xs">
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 rounded-full bg-blue-500" />
+                <span className="text-gray-600">LIWC</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="text-gray-600">Embedding</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 rounded-full bg-violet-500" />
+                <span className="text-gray-600">LLM</span>
+              </div>
+            </div>
+          </div>
+
+          {/* LIWC Slider */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-gray-900 flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-blue-500" />
+                  LIWC (Word Matching)
+                </p>
+                <p className="text-xs text-gray-500">Fast but limited - matches psychological keywords</p>
+              </div>
+              <span className="text-lg font-semibold text-blue-600 w-14 text-right">
+                {settings.hybridWeights.liwc}%
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={settings.hybridWeights.liwc}
+              onChange={(e) => updateWeight('liwc', parseInt(e.target.value))}
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+            />
+          </div>
+
+          {/* Embedding Slider */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-gray-900 flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-emerald-500" />
+                  Embedding (Semantic Similarity)
+                </p>
+                <p className="text-xs text-gray-500">Medium reliability - understands meaning and context</p>
+              </div>
+              <span className="text-lg font-semibold text-emerald-600 w-14 text-right">
+                {settings.hybridWeights.embedding}%
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={settings.hybridWeights.embedding}
+              onChange={(e) => updateWeight('embedding', parseInt(e.target.value))}
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+            />
+          </div>
+
+          {/* LLM Slider */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-gray-900 flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-violet-500" />
+                  LLM (Deep Analysis)
+                </p>
+                <p className="text-xs text-gray-500">Highest reliability - full semantic understanding</p>
+              </div>
+              <span className="text-lg font-semibold text-violet-600 w-14 text-right">
+                {settings.hybridWeights.llm}%
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={settings.hybridWeights.llm}
+              onChange={(e) => updateWeight('llm', parseInt(e.target.value))}
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-violet-500"
+            />
+          </div>
+
+          {/* Info box */}
+          <div className="mt-4 p-4 bg-violet-50 rounded-lg">
+            <p className="text-sm text-violet-800">
+              <strong>How it works:</strong> Your messages are analyzed using three different methods.
+              The weights determine how much each method contributes to your final psychological profile.
+              Higher LLM weight gives more accurate results but uses more resources.
+            </p>
+          </div>
         </div>
       </div>
 

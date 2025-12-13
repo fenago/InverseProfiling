@@ -51,6 +51,7 @@ import {
 import { getAggregateAnalysis, type AnalysisResult } from '../lib/analyzer'
 import type { PersonalityTrait } from '../lib/db'
 import clsx from 'clsx'
+import { AdvancedVisualization } from '../components/AdvancedVisualization'
 
 // Domain Reference Type
 interface DomainReference {
@@ -100,6 +101,7 @@ import {
   type Triple,
   PREDICATES,
 } from '../lib/graphdb'
+import AnimatedGraphVisualization from '../components/AnimatedGraphVisualization'
 
 // Domain Reference Data - All 39 psychological domains
 // IDs match PSYCHOLOGICAL_DOMAINS from analysis-config.ts exactly
@@ -843,7 +845,7 @@ export default function ProfileDashboard() {
     edges: Array<{ source: string; target: string; label: string; metadata?: Record<string, unknown> }>
     triplesByCategory: Record<string, Triple[]>
   } | null>(null)
-  const [activeTab, setActiveTab] = useState<'overview' | 'domains' | 'trends' | 'data' | 'reference'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'domains' | 'trends' | 'advanced' | 'data' | 'reference'>('overview')
 
   // Hybrid signals for all domains (for quick signal indicators)
   const [domainSignals, setDomainSignals] = useState<Record<string, HybridSignalScore[]>>({})
@@ -858,10 +860,6 @@ export default function ProfileDashboard() {
     storeKey: DataStoreKey | null
     viewMode: 'table' | 'json' | 'graph'
   }>({ isOpen: false, title: '', data: null, loading: false, storeKey: null, viewMode: 'table' })
-
-  // Graph visualization state for interactive hover
-  const [hoveredNode, setHoveredNode] = useState<string | null>(null)
-  const [hoveredEdge, setHoveredEdge] = useState<{ source: string; target: string; label: string } | null>(null)
 
   // Expanded domain state for viewing data point details
   const [expandedDomain, setExpandedDomain] = useState<string | null>(null)
@@ -1179,211 +1177,6 @@ export default function ProfileDashboard() {
     )
   }
 
-  // Helper function to render interactive graph visualization
-  function renderGraphVisualization(triples: Triple[]) {
-    if (!triples || triples.length === 0) {
-      return (
-        <div className="text-center py-12 text-gray-500">
-          <Network className="w-12 h-12 mx-auto mb-2 opacity-30" />
-          <p>No graph data to visualize</p>
-        </div>
-      )
-    }
-
-    // Extract unique nodes from triples
-    const nodeMap = new Map<string, { id: string; type: 'subject' | 'object'; connections: number }>()
-    const edges: Array<{ source: string; target: string; label: string; metadata?: Record<string, unknown> }> = []
-
-    triples.forEach(triple => {
-      // Add subject node
-      if (!nodeMap.has(triple.subject)) {
-        nodeMap.set(triple.subject, { id: triple.subject, type: 'subject', connections: 0 })
-      }
-      nodeMap.get(triple.subject)!.connections++
-
-      // Add object node
-      if (!nodeMap.has(triple.object)) {
-        nodeMap.set(triple.object, { id: triple.object, type: 'object', connections: 0 })
-      }
-      nodeMap.get(triple.object)!.connections++
-
-      // Add edge
-      edges.push({
-        source: triple.subject,
-        target: triple.object,
-        label: triple.predicate,
-        metadata: triple.metadata
-      })
-    })
-
-    const nodes = Array.from(nodeMap.values())
-
-    // Simple force-directed layout calculation
-    const width = 800
-    const height = 500
-    const centerX = width / 2
-    const centerY = height / 2
-
-    // Position nodes in a circle with some randomness based on connections
-    const nodePositions = new Map<string, { x: number; y: number }>()
-    nodes.forEach((node, i) => {
-      const angle = (2 * Math.PI * i) / nodes.length
-      const radius = 150 + (node.connections * 10)
-      nodePositions.set(node.id, {
-        x: centerX + Math.cos(angle) * radius + (Math.random() - 0.5) * 50,
-        y: centerY + Math.sin(angle) * radius + (Math.random() - 0.5) * 50
-      })
-    })
-
-    // Color coding for node types
-    const getNodeColor = (nodeId: string) => {
-      if (nodeId.startsWith('user:')) return '#3b82f6' // blue
-      if (nodeId.startsWith('topic:')) return '#8b5cf6' // purple
-      if (nodeId.startsWith('domain:')) return '#10b981' // green
-      if (nodeId.startsWith('concept:')) return '#f59e0b' // amber
-      return '#6b7280' // gray
-    }
-
-    const getPredicateColor = (predicate: string) => {
-      if (predicate === 'discusses' || predicate === 'interested_in') return '#3b82f6'
-      if (predicate === 'belongs_to_domain') return '#10b981'
-      if (predicate === 'correlates_with' || predicate === 'indicates') return '#8b5cf6'
-      if (predicate === 'similar_to' || predicate === 'related_to') return '#f59e0b'
-      return '#9ca3af'
-    }
-
-    return (
-      <div className="relative border border-gray-200 rounded-lg bg-gray-50">
-        {/* Legend */}
-        <div className="absolute top-2 left-2 bg-white/90 rounded-lg p-2 text-xs shadow-sm z-10">
-          <div className="font-medium mb-1">Node Types:</div>
-          <div className="flex items-center gap-1 mb-0.5"><span className="w-3 h-3 rounded-full bg-blue-500"></span> User</div>
-          <div className="flex items-center gap-1 mb-0.5"><span className="w-3 h-3 rounded-full bg-purple-500"></span> Topic</div>
-          <div className="flex items-center gap-1 mb-0.5"><span className="w-3 h-3 rounded-full bg-green-500"></span> Domain</div>
-          <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-amber-500"></span> Concept</div>
-        </div>
-
-        {/* Stats */}
-        <div className="absolute top-2 right-2 bg-white/90 rounded-lg p-2 text-xs shadow-sm z-10">
-          <div className="font-medium">{nodes.length} nodes</div>
-          <div className="text-gray-500">{edges.length} edges</div>
-        </div>
-
-        {/* Hover tooltip */}
-        {(hoveredNode || hoveredEdge) && (
-          <div className="absolute bottom-2 left-2 right-2 bg-white rounded-lg p-3 shadow-lg z-20 border border-gray-200">
-            {hoveredNode && (
-              <div>
-                <div className="font-medium text-sm mb-1">Node: {hoveredNode}</div>
-                <div className="text-xs text-gray-500">
-                  Type: {hoveredNode.split(':')[0] || 'unknown'} |
-                  Connections: {nodeMap.get(hoveredNode)?.connections || 0}
-                </div>
-              </div>
-            )}
-            {hoveredEdge && (
-              <div>
-                <div className="font-medium text-sm mb-1">
-                  <span className="text-blue-600">{hoveredEdge.source.split(':').pop()}</span>
-                  <span className="mx-2 text-purple-600">{hoveredEdge.label.replace(/_/g, ' ')}</span>
-                  <span className="text-green-600">{hoveredEdge.target.split(':').pop()}</span>
-                </div>
-                <div className="text-xs text-gray-500">
-                  {hoveredEdge.source} → {hoveredEdge.target}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* SVG Graph */}
-        <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} className="cursor-move">
-          {/* Edges */}
-          {edges.slice(0, 200).map((edge, i) => {
-            const sourcePos = nodePositions.get(edge.source)
-            const targetPos = nodePositions.get(edge.target)
-            if (!sourcePos || !targetPos) return null
-
-            const isHovered = hoveredEdge?.source === edge.source && hoveredEdge?.target === edge.target
-
-            return (
-              <g key={i}>
-                <line
-                  x1={sourcePos.x}
-                  y1={sourcePos.y}
-                  x2={targetPos.x}
-                  y2={targetPos.y}
-                  stroke={getPredicateColor(edge.label)}
-                  strokeWidth={isHovered ? 3 : 1.5}
-                  opacity={isHovered ? 1 : 0.6}
-                  className="transition-all duration-150"
-                  onMouseEnter={() => setHoveredEdge(edge)}
-                  onMouseLeave={() => setHoveredEdge(null)}
-                  style={{ cursor: 'pointer' }}
-                />
-                {/* Edge label on hover */}
-                {isHovered && (
-                  <text
-                    x={(sourcePos.x + targetPos.x) / 2}
-                    y={(sourcePos.y + targetPos.y) / 2 - 5}
-                    fontSize="10"
-                    fill={getPredicateColor(edge.label)}
-                    textAnchor="middle"
-                    className="pointer-events-none font-medium"
-                  >
-                    {edge.label.replace(/_/g, ' ')}
-                  </text>
-                )}
-              </g>
-            )
-          })}
-
-          {/* Nodes */}
-          {nodes.slice(0, 100).map((node) => {
-            const pos = nodePositions.get(node.id)
-            if (!pos) return null
-
-            const isHovered = hoveredNode === node.id
-            const radius = 6 + Math.min(node.connections * 2, 12)
-
-            return (
-              <g key={node.id}>
-                <circle
-                  cx={pos.x}
-                  cy={pos.y}
-                  r={isHovered ? radius + 4 : radius}
-                  fill={getNodeColor(node.id)}
-                  stroke={isHovered ? '#1f2937' : '#fff'}
-                  strokeWidth={isHovered ? 3 : 2}
-                  className="transition-all duration-150 cursor-pointer"
-                  onMouseEnter={() => setHoveredNode(node.id)}
-                  onMouseLeave={() => setHoveredNode(null)}
-                />
-                {/* Node label */}
-                <text
-                  x={pos.x}
-                  y={pos.y + radius + 12}
-                  fontSize="9"
-                  fill="#374151"
-                  textAnchor="middle"
-                  className="pointer-events-none"
-                >
-                  {node.id.split(':').pop()?.slice(0, 15) || node.id.slice(0, 15)}
-                </text>
-              </g>
-            )
-          })}
-        </svg>
-
-        {nodes.length > 100 && (
-          <div className="text-center text-xs text-gray-500 py-2 bg-amber-50 rounded-b-lg">
-            Showing first 100 nodes of {nodes.length} total
-          </div>
-        )}
-      </div>
-    )
-  }
-
   // Prepare radar chart data
   const radarData = traits.map((t) => ({
     trait: TRAIT_LABELS[t.trait],
@@ -1622,6 +1415,7 @@ export default function ProfileDashboard() {
             { id: 'overview', label: 'Overview', icon: Brain },
             { id: 'domains', label: 'All Domains', icon: Target },
             { id: 'trends', label: 'Trends', icon: Activity },
+            { id: 'advanced', label: 'Advanced', icon: Sparkles },
             { id: 'data', label: 'Data Inspector', icon: Database },
             { id: 'reference', label: 'Domain Reference', icon: BookOpen },
           ].map((tab) => (
@@ -2657,6 +2451,13 @@ export default function ProfileDashboard() {
         </div>
       )}
 
+      {/* ==================== ADVANCED TAB ==================== */}
+      {activeTab === 'advanced' && (
+        <div className="bg-gray-900 rounded-xl p-6">
+          <AdvancedVisualization userId="default" />
+        </div>
+      )}
+
       {/* ==================== DATA TAB ==================== */}
       {activeTab === 'data' && (
         <div className="space-y-6">
@@ -3393,11 +3194,13 @@ export default function ProfileDashboard() {
                     </pre>
                   )}
 
-                  {/* GRAPH VIEW - Interactive visualization for LevelDB */}
+                  {/* GRAPH VIEW - Animated force-directed visualization for LevelDB */}
                   {inspectorModal.viewMode === 'graph' && (inspectorModal.storeKey === 'graphTriples' || inspectorModal.storeKey === 'graphByCategory') && (
-                    <div className="relative">
-                      {renderGraphVisualization(inspectorModal.data as Triple[])}
-                    </div>
+                    <AnimatedGraphVisualization
+                      triples={inspectorModal.data as Triple[]}
+                      width={900}
+                      height={600}
+                    />
                   )}
                 </>
               ) : (

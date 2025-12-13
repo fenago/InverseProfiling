@@ -80,6 +80,56 @@
 
 ---
 
+## Phase 2.5: Expert Validation & Benchmarks
+
+**Goal:** Address expert feedback (Elon Musk & Ilya Sutskever simulation) - build proof points and interpretability
+
+**Source:** `research/expert.md` - synthesized recommendations from Mind Reasoner simulations
+
+**Build Order:**
+1. [ ] Performance benchmark suite
+   - Gemma 3n inference latency on low/mid/high-end devices
+   - Vector search speed in TinkerBird at scale
+   - Memory footprint over extended sessions
+   - Cross-browser compatibility testing
+2. [ ] 39-domain integration methodology documentation
+   - How domains correlate with each other
+   - Math behind aggregating linguistic markers → domain scores
+   - Confidence scoring prevents overfit on sparse data
+   - Update all references from 22 → 39 domains
+3. [ ] Interpretability UI ("Why does it think this?")
+   - Evidence panel showing which interactions drove scores
+   - Domain-specific marker breakdown
+   - Confidence factor visualization
+   - "Explain this score" feature per domain
+4. [ ] Technical whitepaper
+   - Architecture diagrams (formal)
+   - Privacy guarantees (formal proof zero data leaves device)
+   - Benchmark results
+   - 39-domain integration methodology
+5. [ ] Live offline demo capability
+   - 5-minute conversation → shows emerging profile
+   - Real-time confidence scores updating
+   - Works offline to prove zero-cloud claim
+   - PWA manifest for installable demo
+
+**Deliverables:**
+| Deliverable | Format | Location |
+|-------------|--------|----------|
+| Benchmark suite | TypeScript tests | `src/benchmarks/` |
+| 39-domain methodology | Markdown | `research/39-domain-methodology.md` |
+| Interpretability UI | React components | `src/components/Interpretability.tsx` |
+| Technical whitepaper | PDF/Markdown | `research/whitepaper.md` |
+| Offline demo | PWA config | `vite.config.ts` + manifest |
+
+**Expert Validation Criteria (from Mind Reasoner simulations):**
+- Elon: "Does it work?" → Live demo, performance proof
+- Ilya: "Does the math work at scale?" → Benchmarks, methodology rigor
+
+**Exit Criteria:** All expert concerns addressed with empirical proof, interpretability layer complete
+
+---
+
 ## Phase 3: Adaptive Learning
 
 **Goal:** Educational personalization

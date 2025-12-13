@@ -6,6 +6,8 @@
  * - LLM (deep analysis) - highest reliability
  */
 
+import { useStore } from './store'
+
 export interface AnalysisWeights {
   liwc: number
   embedding: number
@@ -188,6 +190,39 @@ export const PSYCHOLOGICAL_DOMAINS = [
 ] as const
 
 export type PsychologicalDomain = typeof PSYCHOLOGICAL_DOMAINS[number]
+
+/**
+ * Get current hybrid weights from the store (converted from percentage to decimal)
+ * This allows dynamic configuration of signal weights via Settings UI
+ */
+export function getCustomWeights(): AnalysisWeights {
+  const state = useStore.getState()
+  const hybridWeights = state.settings.hybridWeights
+
+  return {
+    liwc: hybridWeights.liwc / 100,
+    embedding: hybridWeights.embedding / 100,
+    llm: hybridWeights.llm / 100,
+  }
+}
+
+/**
+ * Get a runtime config that merges custom weights from the store
+ * Use this instead of ANALYSIS_CONFIG directly when you need current user settings
+ */
+export function getRuntimeConfig(): AnalysisConfig {
+  const customWeights = getCustomWeights()
+
+  return {
+    ...ANALYSIS_CONFIG,
+    weights: customWeights,
+    // Fallback weights should also be adjusted proportionally
+    fallbackWeights: {
+      liwc: customWeights.liwc / (customWeights.liwc + customWeights.embedding) || 0.4,
+      embedding: customWeights.embedding / (customWeights.liwc + customWeights.embedding) || 0.6,
+    },
+  }
+}
 
 /**
  * Domain categories for grouping (matches PRD categories)

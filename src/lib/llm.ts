@@ -13,6 +13,7 @@ import {
   generateAdaptiveSystemPrompt,
 } from './adaptive-response'
 import { getCachedMemoryContext } from './session-memory'
+import { getStrategicQuestioningPromptAsync } from './strategic-questions'
 
 // Gemma 3n model configurations
 // These are the official LiteRT-LM format models for browser inference
@@ -212,6 +213,23 @@ async function getSystemPrompt(language: LanguageCode = 'en', responseSize: Resp
     } catch (error) {
       console.warn('Failed to get conversation memory:', error)
     }
+  }
+
+  // Add strategic questioning guidance based on profile phase
+  try {
+    // Get session count to determine the questioning phase
+    const sessionCount = await db.messages
+      .where('sessionId')
+      .equals(currentSessionId)
+      .count()
+
+    const strategicPrompt = await getStrategicQuestioningPromptAsync(sessionCount)
+    if (strategicPrompt) {
+      basePrompt = `${basePrompt}\n\n${strategicPrompt}`
+      console.log('Added strategic questioning guidance to system prompt')
+    }
+  } catch (error) {
+    console.warn('Failed to add strategic questioning:', error)
   }
 
   // Add language and response size instructions

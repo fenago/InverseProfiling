@@ -347,6 +347,19 @@ export const CONTEXT_WINDOW_OPTIONS: {
   },
 ]
 
+// Hybrid analysis weight configuration (percentages that sum to 100)
+export interface HybridWeights {
+  liwc: number      // 0-100 percentage
+  embedding: number // 0-100 percentage
+  llm: number       // 0-100 percentage
+}
+
+export const DEFAULT_HYBRID_WEIGHTS: HybridWeights = {
+  liwc: 20,
+  embedding: 30,
+  llm: 50,
+}
+
 interface SettingsState {
   language: LanguageCode
   responseSize: ResponseSize
@@ -354,6 +367,7 @@ interface SettingsState {
   systemPromptPreset: SystemPromptPreset
   customSystemPrompt: string
   conversationMemoryEnabled: boolean
+  hybridWeights: HybridWeights
 }
 
 interface AppStore {
@@ -388,6 +402,8 @@ interface AppStore {
   setSystemPromptPreset: (preset: SystemPromptPreset) => void
   setCustomSystemPrompt: (prompt: string) => void
   setConversationMemoryEnabled: (enabled: boolean) => void
+  setHybridWeights: (weights: HybridWeights) => void
+  resetHybridWeights: () => void
 }
 
 export const useStore = create<AppStore>((set) => ({
@@ -464,6 +480,7 @@ export const useStore = create<AppStore>((set) => ({
     systemPromptPreset: 'balanced',
     customSystemPrompt: '',
     conversationMemoryEnabled: true, // Enable by default for better continuity
+    hybridWeights: { ...DEFAULT_HYBRID_WEIGHTS },
   },
   setLanguage: (language) =>
     set((state) => ({ settings: { ...state.settings, language } })),
@@ -477,4 +494,8 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => ({ settings: { ...state.settings, customSystemPrompt } })),
   setConversationMemoryEnabled: (conversationMemoryEnabled) =>
     set((state) => ({ settings: { ...state.settings, conversationMemoryEnabled } })),
+  setHybridWeights: (hybridWeights) =>
+    set((state) => ({ settings: { ...state.settings, hybridWeights } })),
+  resetHybridWeights: () =>
+    set((state) => ({ settings: { ...state.settings, hybridWeights: { ...DEFAULT_HYBRID_WEIGHTS } } })),
 }))
