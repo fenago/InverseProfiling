@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist, createJSONStorage } from 'zustand/middleware'
 import type { Message, PersonalityTrait } from './db'
 
 interface LLMState {
@@ -406,15 +407,17 @@ interface AppStore {
   resetHybridWeights: () => void
 }
 
-export const useStore = create<AppStore>((set) => ({
-  // LLM State
-  llm: {
-    isLoading: false,
-    isReady: false,
-    progress: 0,
-    modelName: null,
-    error: null,
-  },
+export const useStore = create<AppStore>()(
+  persist(
+    (set) => ({
+      // LLM State
+      llm: {
+        isLoading: false,
+        isReady: false,
+        progress: 0,
+        modelName: null,
+        error: null,
+      },
   setLLMLoading: (loading) =>
     set((state) => ({ llm: { ...state.llm, isLoading: loading } })),
   setLLMReady: (ready) =>
@@ -498,4 +501,12 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => ({ settings: { ...state.settings, hybridWeights } })),
   resetHybridWeights: () =>
     set((state) => ({ settings: { ...state.settings, hybridWeights: { ...DEFAULT_HYBRID_WEIGHTS } } })),
-}))
+    }),
+    {
+      name: 'qmu-settings-storage',
+      storage: createJSONStorage(() => localStorage),
+      // Only persist settings, not ephemeral state like LLM loading or chat messages
+      partialize: (state) => ({ settings: state.settings }),
+    }
+  )
+)

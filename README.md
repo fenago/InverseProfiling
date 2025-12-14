@@ -2,6 +2,521 @@
 
 **Quantified Mind Understanding** - A privacy-first, browser-based psychometric profiling application that builds a psychological profile through natural conversation. All processing happens locally on your device using WebGPU-accelerated AI models.
 
+---
+
+# Complete System Overview
+
+> *Everything you need to understand how QMU.io builds your psychological profile automatically.*
+
+---
+
+## What Is QMU.io?
+
+QMU.io is a **privacy-first psychological profiling system** that runs entirely in your browser. Unlike traditional psychometric tests that use questionnaires, QMU.io uses **inverse profiling** - analyzing your natural conversations to build a comprehensive psychological profile across **39 research-backed domains**.
+
+**Key Value Propositions:**
+- **100% Private**: All data stays on your device. Zero server calls. Zero tracking.
+- **Automatic Learning**: Just chat naturally - the system learns about you continuously.
+- **Comprehensive**: 39 psychological domains from Big Five personality to cognitive styles.
+- **Multimodal**: Analyzes both text AND voice for richer insights.
+- **Adaptive AI**: The assistant adapts its communication style based on your profile.
+
+---
+
+## The Automatic Learning Pipeline
+
+### How Does It Learn About Me?
+
+Every time you interact with QMU.io, multiple analysis systems work together automatically:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     USER INPUT                                   │
+│  ┌──────────┐  ┌──────────────┐  ┌─────────────────────────┐   │
+│  │   Text   │  │    Voice     │  │    Context Detection    │   │
+│  │ Message  │  │  Recording   │  │ (work/social/intimate)  │   │
+│  └────┬─────┘  └──────┬───────┘  └───────────┬─────────────┘   │
+│       │               │                      │                  │
+└───────┼───────────────┼──────────────────────┼──────────────────┘
+        │               │                      │
+        ▼               ▼                      ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                    THREE-SIGNAL ANALYSIS                           │
+│                                                                    │
+│   ┌────────────────┐ ┌────────────────┐ ┌────────────────────┐   │
+│   │  LIWC Signal   │ │ Embedding      │ │   LLM Signal       │   │
+│   │    (20%)       │ │ Signal (30%)   │ │     (50%)          │   │
+│   │                │ │                │ │                    │   │
+│   │  Word-matching │ │ Semantic       │ │  Deep semantic     │   │
+│   │  against psych │ │ similarity to  │ │  analysis via      │   │
+│   │  dictionaries  │ │ 39 trait       │ │  Gemma 3n          │   │
+│   │                │ │ prototypes     │ │  (batched)         │   │
+│   │  ⚡ INSTANT    │ │  🔄 FAST       │ │  🧠 EVERY 5 MSGS  │   │
+│   └───────┬────────┘ └───────┬────────┘ └──────────┬─────────┘   │
+│           │                  │                     │              │
+│           └──────────────────┼─────────────────────┘              │
+│                              ▼                                    │
+│                   ┌────────────────────┐                          │
+│                   │ HYBRID AGGREGATOR  │                          │
+│                   │ Weighted Fusion    │                          │
+│                   │ Confidence Scoring │                          │
+│                   └─────────┬──────────┘                          │
+│                             │                                     │
+└─────────────────────────────┼─────────────────────────────────────┘
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    STORAGE & ADAPTATION                          │
+│                                                                  │
+│   ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐ │
+│   │  39 Domain   │  │  Knowledge   │  │  Adaptive Response   │ │
+│   │    Scores    │  │    Graph     │  │      Generator       │ │
+│   │  (SQL.js)    │  │ (LevelGraph) │  │                      │ │
+│   └──────────────┘  └──────────────┘  └──────────────────────┘ │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Step-by-Step: What Happens When You Send a Message
+
+1. **You type/speak a message** → "I really enjoyed leading that project meeting yesterday. It was stressful but rewarding."
+
+2. **Context Detection** → System recognizes: `work` context, `stressful` sub-context
+
+3. **Three signals fire simultaneously:**
+
+   | Signal | What It Does | Speed | Example Output |
+   |--------|--------------|-------|----------------|
+   | **LIWC** | Scans for keywords: "enjoyed" (positive emotion), "leading" (power), "stressful" (anxiety) | Instant | `extraversion: 0.7, neuroticism: 0.4` |
+   | **Embedding** | Computes semantic similarity to 39 trait prototypes | ~100ms | `conscientiousness: 0.75, achievement: 0.8` |
+   | **LLM** | After 5 messages, deeply analyzes patterns | Batched | `leadership_style: assertive, stress_coping: active` |
+
+4. **Hybrid Aggregation** → Weighted combination: `final_score = 0.2×LIWC + 0.3×Embedding + 0.5×LLM`
+
+5. **Storage** → Scores saved to SQL database, relationships added to knowledge graph
+
+6. **Adaptation** → Next AI response is tailored to your emerging profile
+
+---
+
+## The Three Analysis Signals (Deep Dive)
+
+### Signal 1: LIWC Analysis (20% weight)
+
+**Linguistic Inquiry and Word Count** - Fast pattern matching against psychological dictionaries.
+
+```
+Input: "I'm so excited about this new opportunity!"
+                    │
+                    ▼
+┌─────────────────────────────────────────┐
+│          LIWC DICTIONARY SCAN           │
+│                                         │
+│  "excited" → positive_emotion (+1)      │
+│  "I'm" → first_person_singular (+1)     │
+│  "new" → novelty (+1)                   │
+│  "opportunity" → achievement (+1)       │
+│                                         │
+│  Mapped Domains:                        │
+│  • big_five_extraversion: 0.7           │
+│  • big_five_openness: 0.65              │
+│  • achievement_motivation: 0.7          │
+└─────────────────────────────────────────┘
+```
+
+**What it catches:** Emotional words, pronouns (I/we), certainty language, cognitive complexity markers.
+
+### Signal 2: Embedding Similarity (30% weight)
+
+**Semantic similarity** using BGE-small-en transformer model.
+
+```
+Input: "I prefer to plan everything meticulously before starting"
+                    │
+                    ▼
+┌─────────────────────────────────────────────────────────────┐
+│              EMBEDDING SIMILARITY ENGINE                     │
+│                                                             │
+│  1. Convert input → 384-dimensional vector                  │
+│                                                             │
+│  2. Compare to 39 prototype vectors:                        │
+│                                                             │
+│     Prototype: "I am organized, systematic, and thorough"   │
+│     Similarity: 0.89 → conscientiousness                    │
+│                                                             │
+│     Prototype: "I embrace change and new experiences"       │
+│     Similarity: 0.31 → openness                             │
+│                                                             │
+│  Output: { conscientiousness: 0.89, openness: 0.31, ... }   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**What it catches:** Semantic meaning, conceptual similarity, nuanced expressions that keyword matching would miss.
+
+### Signal 3: LLM Deep Analysis (50% weight)
+
+**Gemma 3n** (running locally via WebGPU) performs deep semantic analysis every 5 messages.
+
+```
+Input: Last 5 messages accumulated
+                    │
+                    ▼
+┌─────────────────────────────────────────────────────────────┐
+│              LLM BATCH ANALYSIS                              │
+│                                                             │
+│  System Prompt: "Analyze these messages for psychological   │
+│  traits. Output JSON scores for each domain."               │
+│                                                             │
+│  LLM reasoning:                                             │
+│  - User consistently uses structured language               │
+│  - Shows preference for detailed explanations               │
+│  - Expresses anxiety about ambiguity                        │
+│  - Values achievement and recognition                       │
+│                                                             │
+│  Output JSON:                                               │
+│  {                                                          │
+│    "big_five_conscientiousness": 0.82,                      │
+│    "big_five_neuroticism": 0.45,                            │
+│    "achievement_motivation": 0.78,                          │
+│    "decision_style": "rational",                            │
+│    "confidence": 0.85                                       │
+│  }                                                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**What it catches:** Complex patterns, contradictions, implicit traits, reasoning styles, deeper motivations.
+
+---
+
+## Voice Analysis (Optional Multimodal)
+
+When you use voice input, additional prosodic features are extracted:
+
+```
+Voice Recording
+      │
+      ▼
+┌─────────────────────────────────────────────────────────────┐
+│              PROSODIC FEATURE EXTRACTION                     │
+│                                                             │
+│  Pitch Analysis:                                            │
+│  • Mean pitch (Hz) → baseline emotional arousal             │
+│  • Pitch variability → emotional expressiveness             │
+│  • Pitch contour → statement vs. question patterns          │
+│                                                             │
+│  Tempo Analysis:                                            │
+│  • Speech rate (words/min) → extraversion, anxiety          │
+│  • Pause ratio → cognitive load, uncertainty                │
+│  • Articulation rate → confidence level                     │
+│                                                             │
+│  Energy Analysis:                                           │
+│  • Loudness mean → dominance, enthusiasm                    │
+│  • Energy variation → emotional engagement                  │
+│                                                             │
+│  Voice Quality:                                             │
+│  • Jitter (pitch instability) → stress, arousal             │
+│  • Shimmer (amplitude instability) → fatigue, emotion       │
+│  • Harmonic-to-noise ratio → voice clarity                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Domain Mapping Examples:**
+| Prosodic Feature | High Value Indicates |
+|------------------|---------------------|
+| High speech rate | Extraversion, anxiety |
+| High pitch variability | Emotional expressiveness |
+| Long pauses | Thoughtfulness, uncertainty |
+| High jitter | Stress, emotional arousal |
+| Low HNR | Fatigue, negative affect |
+
+---
+
+## Strategic Questioning Engine (Active Learning)
+
+The system doesn't just passively analyze - it **actively guides conversations** to learn more efficiently.
+
+### Three-Phase Approach:
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│                    ACTIVE LEARNING PHASES                          │
+├───────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  Phase 1: DIAGNOSTIC (Sessions 0-10)                              │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │ Goal: Establish baseline across all domains                 │ │
+│  │                                                             │ │
+│  │ Question Types:                                             │ │
+│  │ • "Tell me about a time when you faced a challenge..."      │ │
+│  │ • "How do you typically spend your weekends?"               │ │
+│  │ • "What matters most to you in relationships?"              │ │
+│  │                                                             │ │
+│  │ Strategy: Broad, open-ended questions to cast a wide net    │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                              │                                    │
+│                              ▼                                    │
+│  Phase 2: TARGETED (Sessions 11-30)                               │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │ Goal: Fill gaps in low-confidence domains                   │ │
+│  │                                                             │ │
+│  │ System identifies: "big_five_neuroticism confidence: 0.3"   │ │
+│  │                                                             │ │
+│  │ Targeted Questions:                                         │ │
+│  │ • "How do you handle unexpected changes to your plans?"     │ │
+│  │ • "When you're stressed, what does that look like for you?" │ │
+│  │ • "How long does it take you to recover from setbacks?"     │ │
+│  │                                                             │ │
+│  │ Strategy: Probe specific domains needing more data          │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                              │                                    │
+│                              ▼                                    │
+│  Phase 3: VALIDATION (Sessions 31+)                               │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │ Goal: Verify and refine existing profile                    │ │
+│  │                                                             │ │
+│  │ Hypothesis Testing:                                         │ │
+│  │ • "You mentioned enjoying leadership - does that extend     │ │
+│  │    to social situations outside work?"                      │ │
+│  │ • "I noticed you value efficiency - how does that affect    │ │
+│  │    your personal relationships?"                            │ │
+│  │                                                             │ │
+│  │ Strategy: Cross-validate and find nuances/contradictions    │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                                                                   │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+The AI naturally weaves these questions into conversation - you won't feel like you're taking a test.
+
+---
+
+## The 39 Psychological Domains
+
+Organized into 8 research-backed categories:
+
+### Category A: Core Personality (Big Five) - NEO-FFI Based
+| Domain ID | Trait | What It Measures |
+|-----------|-------|------------------|
+| `big_five_openness` | Openness | Curiosity, creativity, preference for novelty |
+| `big_five_conscientiousness` | Conscientiousness | Organization, dependability, self-discipline |
+| `big_five_extraversion` | Extraversion | Sociability, assertiveness, positive emotions |
+| `big_five_agreeableness` | Agreeableness | Cooperation, trust, empathy |
+| `big_five_neuroticism` | Neuroticism | Emotional instability, anxiety, moodiness |
+
+### Category B: Dark Personality - SD3 Based
+| Domain ID | Trait | What It Measures |
+|-----------|-------|------------------|
+| `dark_triad_narcissism` | Narcissism | Grandiosity, need for admiration |
+| `dark_triad_machiavellianism` | Machiavellianism | Strategic manipulation, cynicism |
+| `dark_triad_psychopathy` | Psychopathy | Impulsivity, callousness, thrill-seeking |
+
+### Category C: Emotional Intelligence - EQ/MSCEIT Based
+| Domain ID | Trait | What It Measures |
+|-----------|-------|------------------|
+| `emotional_empathy` | Empathy | Ability to understand others' feelings |
+| `emotional_intelligence` | EQ | Emotional perception, regulation, use |
+| `attachment_style` | Attachment | Secure, anxious, avoidant patterns |
+| `love_languages` | Love Languages | How you give/receive love |
+| `communication_style` | Communication | DISC-based interaction patterns |
+
+### Category D: Decision Making & Motivation
+| Domain ID | Trait | What It Measures |
+|-----------|-------|------------------|
+| `risk_tolerance` | Risk Tolerance | Comfort with uncertainty and risk |
+| `decision_style` | Decision Style | Rational vs. intuitive processing |
+| `time_orientation` | Time Orientation | Past, present, or future focus |
+| `achievement_motivation` | Achievement | Need for accomplishment |
+| `self_efficacy` | Self-Efficacy | Belief in your capabilities |
+| `locus_of_control` | Locus of Control | Internal vs. external attribution |
+| `growth_mindset` | Growth Mindset | Fixed vs. growth beliefs about ability |
+
+### Category E: Values & Wellbeing - Schwartz PVQ Based
+| Domain ID | Trait | What It Measures |
+|-----------|-------|------------------|
+| `personal_values` | Values | Core value priorities |
+| `interests` | Interests | RIASEC career/interest types |
+| `life_satisfaction` | Life Satisfaction | Overall wellbeing assessment |
+| `stress_coping` | Stress Coping | Coping strategy preferences |
+| `social_support` | Social Support | Perceived support network |
+| `authenticity` | Authenticity | Alignment between true/presented self |
+
+### Category F: Cognitive & Learning Styles
+| Domain ID | Trait | What It Measures |
+|-----------|-------|------------------|
+| `cognitive_abilities` | Cognitive Style | Verbal, numerical, spatial preferences |
+| `creativity` | Creativity | Divergent thinking, originality |
+| `learning_styles` | Learning Styles | VARK preferences |
+| `information_processing` | Info Processing | Deep vs. shallow processing |
+| `metacognition` | Metacognition | Awareness of own thinking |
+| `executive_functions` | Executive Functions | Planning, inhibition, flexibility |
+
+### Category G: Social & Cultural Values
+| Domain ID | Trait | What It Measures |
+|-----------|-------|------------------|
+| `social_cognition` | Social Cognition | Theory of mind, social perception |
+| `political_ideology` | Political Values | Political orientation |
+| `cultural_values` | Cultural Values | Hofstede cultural dimensions |
+| `moral_reasoning` | Moral Reasoning | Moral foundations preferences |
+| `work_career_style` | Career Style | Career anchors, work values |
+
+### Category H: Sensory & Aesthetic
+| Domain ID | Trait | What It Measures |
+|-----------|-------|------------------|
+| `sensory_processing` | Sensory Sensitivity | HSP-based sensitivity |
+| `aesthetic_preferences` | Aesthetic Preferences | Art, beauty, design preferences |
+
+---
+
+## Context-Aware Profiling
+
+Your personality isn't static - you act differently in different contexts. QMU.io tracks this:
+
+```
+Context Detection → Automatic keyword/pattern recognition
+
+┌─────────────────────────────────────────────────────────────┐
+│  10 CONTEXT TYPES                                           │
+│                                                             │
+│  work       │ Professional, career discussions              │
+│  social     │ Casual interactions with friends              │
+│  intimate   │ Close relationships, vulnerability            │
+│  creative   │ Art, music, creative projects                 │
+│  stressful  │ High-pressure situations                      │
+│  leisure    │ Relaxation, hobbies                           │
+│  intellectual │ Learning, academic discussions              │
+│  physical   │ Health, fitness, body-related                 │
+│  spiritual  │ Meaning, purpose, existential topics          │
+│  financial  │ Money, economics, financial decisions         │
+└─────────────────────────────────────────────────────────────┘
+
+Example Output:
+  big_five_extraversion@work: 0.8
+  big_five_extraversion@intimate: 0.4
+  → "You're more outgoing at work than in intimate settings"
+```
+
+---
+
+## Real-Time Emotion Detection
+
+Using Russell's Circumplex Model, QMU.io maps your emotional state in 2D space:
+
+```
+                    High Arousal
+                         │
+         STRESSED ───────┼─────── EXCITED
+         ANXIOUS         │         HAPPY
+         ANGRY           │         ELATED
+                         │
+ Negative ───────────────┼─────────────── Positive
+ Valence                 │               Valence
+                         │
+         SAD ────────────┼─────── CONTENT
+         DEPRESSED       │         CALM
+         BORED           │         RELAXED
+                         │
+                    Low Arousal
+```
+
+**17 Discrete Emotions Detected:**
+- Q1 (High Arousal + Positive): Happy, Excited, Elated
+- Q2 (High Arousal + Negative): Angry, Anxious, Stressed, Frustrated, Fearful
+- Q3 (Low Arousal + Negative): Sad, Depressed, Bored, Tired
+- Q4 (Low Arousal + Positive): Content, Calm, Relaxed, Serene
+- Center: Neutral
+
+---
+
+## Data Architecture
+
+Four specialized databases, ALL running locally in your browser:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                    LOCAL BROWSER STORAGE                          │
+│                                                                   │
+│  ┌─────────────────┐  ┌─────────────────┐                        │
+│  │    IndexedDB    │  │    SQL.js       │                        │
+│  │    (Dexie)      │  │   (SQLite WASM) │                        │
+│  │                 │  │                 │                        │
+│  │ • Messages      │  │ • Domain scores │                        │
+│  │ • Sessions      │  │ • Feature counts│                        │
+│  │ • Activity logs │  │ • Signal history│                        │
+│  │ • User prefs    │  │ • Emotions      │                        │
+│  └─────────────────┘  └─────────────────┘                        │
+│                                                                   │
+│  ┌─────────────────┐  ┌─────────────────┐                        │
+│  │   LevelGraph    │  │   TinkerBird    │                        │
+│  │ (Knowledge DB)  │  │   (Vector DB)   │                        │
+│  │                 │  │                 │                        │
+│  │ • Trait links   │  │ • Embeddings    │                        │
+│  │ • Causal chains │  │ • Semantic      │                        │
+│  │ • Context rels  │  │   search        │                        │
+│  └─────────────────┘  └─────────────────┘                        │
+│                                                                   │
+│  🔒 ZERO DATA LEAVES YOUR DEVICE                                  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Why This Matters: The Value of QMU.io
+
+### Traditional Assessment vs. QMU.io
+
+| Aspect | Traditional Tests | QMU.io |
+|--------|-------------------|--------|
+| **Data Collection** | One-time questionnaire | Continuous conversation |
+| **Privacy** | Data sent to servers | 100% local processing |
+| **Domains** | Usually 5-10 traits | 39 comprehensive domains |
+| **Context** | Static snapshot | Context-aware (10 contexts) |
+| **Adaptation** | None | AI adapts to your profile |
+| **Multimodal** | Text only | Text + Voice analysis |
+| **Cost** | Often $50-200 per assessment | Free, open source |
+| **Evolution** | Point-in-time | Tracks changes over time |
+
+### Who Benefits?
+
+**For Personal Growth:**
+- Understand your psychological patterns
+- Track how you evolve over time
+- Get AI responses tailored to your style
+
+**For Privacy Advocates:**
+- No data leaves your device
+- No accounts required
+- Full transparency - view all stored data
+
+**For Researchers:**
+- Open source methodology
+- Export all data as JSON
+- Detailed analysis logs
+
+---
+
+## Quick Start
+
+1. **Visit the app** → All processing is local, no sign-up required
+2. **Start chatting** → Just have natural conversations
+3. **Watch your profile build** → View the Profile Dashboard
+4. **Optional: Enable voice** → Get richer multimodal insights
+
+---
+
+## Technical Requirements
+
+- **Browser**: Chrome 113+ or Edge 113+ (WebGPU required)
+- **RAM**: ~4GB recommended for LLM inference
+- **First Load**: ~2.5GB model download (cached after)
+- **Storage**: ~50MB for your data
+
+---
+
+# Detailed Documentation
+
+*Below is the complete technical documentation for developers and researchers.*
+
+---
+
 ## Overview
 
 QMU.io implements **inverse profiling** - instead of using traditional psychometric questionnaires, it analyzes natural language from conversations to infer psychological traits across 39 research-backed domains. This creates a dynamic psychological model that adapts its understanding as you interact with it.
@@ -745,6 +1260,7 @@ src/
         └── memory-benchmark.ts # Memory/storage benchmarks
 
 research/                       # Documentation & specifications
+├── domain-reference.md         # Complete 39-domain reference with markers & data points
 ├── Fine-Tuned-Psychometrics.md # 39-domain specification (PRD)
 ├── PRD-Digital-Twin.md         # Product requirements
 ├── Final-Architecture.md       # System architecture
@@ -1327,6 +1843,7 @@ npm run lint
 
 See the `/research` folder for detailed specifications:
 
+- `domain-reference.md` - **Complete reference for all 39 psychological domains** with behavioral markers, data points, and psychometric sources
 - `Fine-Tuned-Psychometrics.md` - Complete 39-domain specification
 - `PRD-Digital-Twin.md` - Product requirements document
 - `Final-Architecture.md` - System architecture details
